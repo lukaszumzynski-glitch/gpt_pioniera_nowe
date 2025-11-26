@@ -209,7 +209,7 @@ def login():
     users = {}
     config = {}
     
-    # DODAJEMY NAGŁÓWEK TUTAJ
+    # ... (kod nagłówka PIONIER GPT) ...
     img_path = "logo.png"
     encoded_img = img_to_bytes(img_path)
     if encoded_img:
@@ -220,20 +220,30 @@ def login():
             </div>
         """
         st.markdown(header_html, unsafe_allow_html=True)
-    # KONIEC DODANEGO NAGŁÓWKA
-
+    
+    # TUTAJ JEST ZMIANA W CZYTANIU SEKRETÓW
     try:
-        with open("secret.toml", "rb") as f:
-            config = toml.load(f)
-            users = config.get("users", {})
-            # Próbujemy wczytać klucz API z TOML i zapisać w sesji
-            st.session_state["openai_api_key"] = config.get("openai", {}).get("api_key")
+        # Zamiast open("secret.toml", ...), używamy st.secrets
+        # St.secrets automatycznie czyta z pliku lokalnego LUB z konfiguracji Cloud.
+        
+        # Streamlit traktuje sekrety jako zagnieżdżony słownik.
+        # Przenosimy logikę ładowania do st.secrets, ale musimy obsłużyć potencjalny brak kluczy.
+        
+        users = st.secrets.get("users", {})
+        api_key = st.secrets.get("openai", {}).get("api_key")
+        st.session_state["openai_api_key"] = api_key
 
-    except FileNotFoundError:
-        st.error("Brak pliku secret.toml. Proszę go utworzyć i skonfigurować zgodnie z instrukcjami.")
+        if not users:
+             st.error("Brak sekcji [users] w secrets.toml lub konfiguracji Streamlit Cloud.")
+             return
+
+    except Exception as e:
+        # Jeśli wystąpi inny błąd (np. literówka w nazwie sekcji w secrets), złapiemy go tutaj
+        st.error(f"Błąd podczas ładowania konfiguracji secrets: {e}")
         return
 
-    st.subheader("Logowanie")
+    # ... (reszta kodu logowania pozostaje bez zmian) ...
+    st.subheader("Logowanie") 
     username = st.text_input("Nazwa użytkownika")
     password = st.text_input("Hasło", type="password")
 
