@@ -64,7 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    assistant_message_content = response.choices.message.content
+    assistant_message_content = response.choices[0].message.content
 
     return {
         "role": "assistant",
