@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import base64
 import os
 import bcrypt
-import tomllib
 from datetime import datetime
 
 # Ładowanie zmiennych środowiskowych
@@ -102,10 +101,15 @@ def load_current_conversation():
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
-             conversation = json.loads(f.read())
+            conversation = json.loads(f.read())
+
         # Upewniamy się, że konwersacja należy do aktualnego użytkownika
-        if conversation.get('username') == current_user: 
+        if conversation.get('username') == current_user:
             load_conversation_to_state(conversation)
+        else:
+            # Jeśli konwersacja nie należy do użytkownika, ustaw pustą sesję
+            st.session_state["messages"] = []
+            st.session_state["name"] = ""
 
 def save_current_conversation_messages():
     try:
@@ -115,7 +119,7 @@ def save_current_conversation_messages():
         if file_path.exists():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
-            # Zaktualizowane: zachowujemy username podczas zapisu
+            # Dodajemy zapis username
             conversation["messages"] = new_messages
             with open(file_path, "w") as f:
                 f.write(json.dumps(conversation))
