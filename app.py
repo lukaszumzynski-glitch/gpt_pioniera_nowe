@@ -64,8 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    # *** POPRAWIONA LINIA KODU - Używamy response.choices[0] aby dostać pierwszy element z listy ***
-    assistant_message_content = response.choices[0].message.content
+    assistant_message_content = response.choices.message.content
 
     return {
         "role": "assistant",
@@ -74,7 +73,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
     }
 
 #
-# CONVERSATION HISTORY AND DATABASE (ZAPIS PLIKOWY)
+# CONVERSATION HISTORY AND DATABASE (ZAPIS PLIKOWY Z OBSŁUGĄ USERÓW)
 #
 DB_PATH = Path("db")
 DB_CONVERSATIONS_PATH = DB_PATH / "conversations"
@@ -87,28 +86,27 @@ def load_conversation_to_state(conversation):
     st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
+    # Upewnij się, że foldery istnieją
     if not DB_PATH.exists():
         DB_PATH.mkdir(exist_ok=True)
+    if not DB_CONVERSATIONS_PATH.exists():
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
-        conversation_id = 1
-        conversation = {
-            "id": conversation_id,
-            "name": "Konwersacja 1",
-            "chatbot_personality": DEFAULT_PERSONALITY,
-            "messages": [],
-        }
-        with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
-            f.write(json.dumps(conversation))
-        with open(DB_PATH / "current.json", "w") as f:
-            f.write(json.dumps({"current_conversation_id": conversation_id,}))
-    
-    with open(DB_PATH / "current.json", "r") as f:
-        data = json.loads(f.read())
-        conversation_id = data["current_conversation_id"]
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
-        conversation = json.loads(f.read())
 
-    load_conversation_to_state(conversation)
+    current_user = st.session_state.get("username")
+    if not current_user: return # Opuść jeśli brak usera (np. podczas logowania)
+
+    # Sprawdź, czy user ma już jakieś konwersacje.
+    available_convs = list_conversations(current_user)
+    
+    if not available_convs:
+        # Jeśli użytkownik nie ma konwersacji, stwórz nową dla niego
+        create_new_conversation()
+    else:
+        # Wczytaj najnowszą dla tego użytkownika (pierwszą na posortowanej liście)
+        latest_conv_id = available_convs[0]['id']
+        with open(DB_CONVERSATIONS_PATH / f"{latest_conv_id}.json", "r") as f:
+             conversation = json.loads(f.read())
+        load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
     try:
@@ -154,47 +152,61 @@ def create_new_conversation():
     conversation_ids = []
     for p in DB_CONVERSATIONS_PATH.glob("*.json"):
         conversation_ids.append(int(p.stem))
-    conversation_id = max(conversation_ids) + 1
+    # Zapobiegamy błędowi, gdy nie ma żadnych plików JSON, max() by zwrócił błąd
+    next_id = max(conversation_ids) + 1 if conversation_ids else 1
+    
     personality = DEFAULT_PERSONALITY
     if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
         personality = st.session_state["chatbot_personality"]
 
     conversation = {
-        "id": conversation_id,
-        "name": f"Konwersacja {conversation_id}",
+        "id": next_id,
+        "name": f"Konwersacja {next_id}",
         "chatbot_personality": personality,
         "messages": [],
+        "username": st.session_state.get("username") # <-- KLUCZOWA ZMIANA: Zapisujemy username
     }
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+    with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
-    with open(DB_PATH / "current.json", "w") as f:
-        f.write(json.dumps({"current_conversation_id": conversation_id,}))
     
     st.session_state['reload_app_state'] = True
 
-
-def list_conversations():
+def list_conversations(username=None):
+    """Zwraca listę słowników z ID i nazwami konwersacji, filtruje po username."""
+    user_to_filter = username if username else st.session_state.get("username")
     conversations_list = []
-    if DB_CONVERSATIONS_PATH.exists():
+    if DB_CONVERSATIONS_PATH.exists() and user_to_filter:
         for p in DB_CONVERSATIONS_PATH.glob("*.json"):
             try:
                 with open(p, "r") as f:
                     data = json.loads(f.read())
-                    conversations_list.append({
-                        "id": data.get("id"),
-                        "name": data.get("name", f"Konwersacja {data.get('id')}")
-                    })
+                    # FILTROWANIE PO UŻYTKOWNIKU!
+                    if data.get("username") == user_to_filter: 
+                        conversations_list.append({
+                            "id": data.get("id"),
+                            "name": data.get("name", f"Konwersacja {data.get('id')}")
+                        })
             except Exception as e:
                 print(f"Błąd podczas listowania konwersacji: {e}")
-                
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
     """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
     save_current_conversation_messages() 
-    with open(DB_PATH / "current.json", "w") as f:
-        f.write(json.dumps({"current_conversation_id": conversation_id,}))
+    # Tutaj nie zapisujemy current.json dla wszystkich userów, tylko wymuszamy reload
     st.session_state['reload_app_state'] = True 
+
+def delete_conversation(conversation_id):
+    """Usuwa plik konwersacji i przełącza na inną konwersację."""
+    file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
+    if file_path.exists():
+        os.remove(file_path)
+        st.success(f"Konwersacja usunięta.")
+        # Po usunięciu, musimy wymusić przeładowanie i wybranie nowej konwersacji
+        st.session_state['reload_app_state'] = True
+    else:
+        st.error("Nie można znaleźć konwersacji do usunięcia.")
+
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -299,12 +311,19 @@ if st.session_state["logged_in"]:
         st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name)
         st.divider()
 
-        # 6. Lista zapisanych konwersacji (aktywne, z ramkami)
+        # 6. Lista zapisanych konwersacji (aktywne, z ramkami + usuwanie)
         st.subheader("Historia konwersacji")
-        conversations = list_conversations()
+        conversations = list_conversations(st.session_state.get("username"))
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
+            
+            # Używamy kolumn dla przycisku nazwy i przycisku usuwania
+            col1, col2 = st.columns([0.8, 0.2])
+            with col1:
+                st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
+            with col2:
+                # Przycisk usuwania (czerwony)
+                st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation, args=(conv['id'],))
         st.divider()
 
         # 7. Okno osobowości chatbota (na końcu)
