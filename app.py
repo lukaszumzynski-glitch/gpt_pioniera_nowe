@@ -64,8 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    # *** POPRAWIONA LINIA KODU - Musimy dostać się do atrybutów odpowiedzi poprzez indeksowanie listy choices ***
-    assistant_message_content = response.choices[0].message.content 
+    assistant_message_content = response.choices.message.content
 
     return {
         "role": "assistant",
@@ -84,6 +83,7 @@ def load_conversation_to_state(conversation):
     st.session_state["name"] = conversation["name"]
     st.session_state["messages"] = conversation["messages"]
     st.session_state["chatbot_personality"] = conversation["chatbot_personality"]
+    # Ustawiamy wartość początkową inputu, która zostanie użyta przy renderowaniu sidebara
     st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
@@ -100,8 +100,7 @@ def load_current_conversation():
     if not available_convs:
         create_new_conversation()
     else:
-        # Wczytaj najnowszą dla tego użytkownika (pierwszą na posortowanej liście)
-        latest_conv = available_convs[0] # Poprawiono błąd indeksowania, bo list_conversations zwraca listę
+        latest_conv = available_convs[0] # Poprawione indeksowanie, bierzemy pierwszy element z listy
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
@@ -122,7 +121,9 @@ def save_current_conversation_messages():
 def save_current_conversation_name():
     try:
         conversation_id = st.session_state["id"]
-        new_conversation_name = st.session_state["new_conversation_name_input"]
+        # Pobieramy nazwę z inputu w sidebarze (session_state inputu)
+        new_conversation_name = st.session_state["new_conversation_name_input"] 
+        
         file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
         if file_path.exists():
             with open(file_path, "r") as f:
@@ -166,8 +167,9 @@ def create_new_conversation():
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
     
-    # Używamy on_click w innym przycisku (np. Nowa Konwersacja) do wywołania st.rerun
-    # Tutaj tylko ustawiamy flagę
+    # DODANA LOGIKA RESETOWANIA INPUTU PO UTWORZENIU NOWEJ KONWERSACJI
+    st.session_state["new_conversation_name_input"] = f"Konwersacja {next_id}"
+    
     st.session_state['reload_app_state'] = True
 
 
@@ -192,7 +194,6 @@ def list_conversations(username=None):
 def select_conversation_callback(conversation_id):
     """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
     save_current_conversation_messages() 
-    # Ustawiamy globalny stan, który zostanie odczytany przy następnej pętli
     st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
 
@@ -202,7 +203,6 @@ def delete_conversation_callback(conversation_id):
     if file_path.exists():
         os.remove(file_path)
         st.success(f"Konwersacja usunięta.")
-        # Ustawiamy flagę, aby przeładować stan i wybrać inną konwersację
         st.session_state['reload_app_state'] = True
     else:
         st.error("Nie można znaleźć konwersacji do usunięcia.")
@@ -276,6 +276,7 @@ if st.session_state["logged_in"]:
     if st.session_state.get('reload_app_state'):
         # Jeśli pending_conversation_id jest ustawione, zapisujemy je do current.json zanim nastąpi rerun
         if st.session_state.get('pending_conversation_id'):
+             # Zapisujemy do current.json ID, które ma zostać załadowane po rerunu
              with open(DB_PATH / "current.json", "w") as f:
                 f.write(json.dumps({"current_conversation_id": st.session_state['pending_conversation_id'],}))
              st.session_state.pop('pending_conversation_id', None) # Usuwamy flagę
@@ -314,7 +315,8 @@ if st.session_state["logged_in"]:
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
         
         # 5. Zmień nazwę konwersacji (pole tekstowe, przeniesione wyżej)
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name)
+        # Ustawiamy wartość domyślną inputu na to, co jest aktualnie wczytane (co właśnie naprawiliśmy)
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
         # 6. Lista zapisanych konwersacji (aktywne, z ramkami + usuwanie)
