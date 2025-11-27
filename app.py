@@ -64,7 +64,8 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    assistant_message_content = response.choices.message.content
+    # *** POPRAWIONA LINIA KODU - Musimy dostać się do atrybutów odpowiedzi poprzez indeksowanie listy choices ***
+    assistant_message_content = response.choices[0].message.content 
 
     return {
         "role": "assistant",
@@ -86,25 +87,22 @@ def load_conversation_to_state(conversation):
     st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
-    # Upewnij się, że foldery istnieją
     if not DB_PATH.exists():
         DB_PATH.mkdir(exist_ok=True)
     if not DB_CONVERSATIONS_PATH.exists():
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
 
     current_user = st.session_state.get("username")
-    if not current_user: return # Opuść jeśli brak usera (np. podczas logowania)
+    if not current_user: return 
 
-    # Sprawdź, czy user ma już jakieś konwersacje.
     available_convs = list_conversations(current_user)
     
     if not available_convs:
-        # Jeśli użytkownik nie ma konwersacji, stwórz nową dla niego
         create_new_conversation()
     else:
         # Wczytaj najnowszą dla tego użytkownika (pierwszą na posortowanej liście)
-        latest_conv_id = available_convs[0]['id']
-        with open(DB_CONVERSATIONS_PATH / f"{latest_conv_id}.json", "r") as f:
+        latest_conv = available_convs[0] # Poprawiono błąd indeksowania, bo list_conversations zwraca listę
+        with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
 
@@ -152,7 +150,6 @@ def create_new_conversation():
     conversation_ids = []
     for p in DB_CONVERSATIONS_PATH.glob("*.json"):
         conversation_ids.append(int(p.stem))
-    # Zapobiegamy błędowi, gdy nie ma żadnych plików JSON, max() by zwrócił błąd
     next_id = max(conversation_ids) + 1 if conversation_ids else 1
     
     personality = DEFAULT_PERSONALITY
@@ -164,12 +161,15 @@ def create_new_conversation():
         "name": f"Konwersacja {next_id}",
         "chatbot_personality": personality,
         "messages": [],
-        "username": st.session_state.get("username") # <-- KLUCZOWA ZMIANA: Zapisujemy username
+        "username": st.session_state.get("username")
     }
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
     
+    # Używamy on_click w innym przycisku (np. Nowa Konwersacja) do wywołania st.rerun
+    # Tutaj tylko ustawiamy flagę
     st.session_state['reload_app_state'] = True
+
 
 def list_conversations(username=None):
     """Zwraca listę słowników z ID i nazwami konwersacji, filtruje po username."""
@@ -180,7 +180,6 @@ def list_conversations(username=None):
             try:
                 with open(p, "r") as f:
                     data = json.loads(f.read())
-                    # FILTROWANIE PO UŻYTKOWNIKU!
                     if data.get("username") == user_to_filter: 
                         conversations_list.append({
                             "id": data.get("id"),
@@ -193,16 +192,17 @@ def list_conversations(username=None):
 def select_conversation_callback(conversation_id):
     """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
     save_current_conversation_messages() 
-    # Tutaj nie zapisujemy current.json dla wszystkich userów, tylko wymuszamy reload
+    # Ustawiamy globalny stan, który zostanie odczytany przy następnej pętli
+    st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
 
-def delete_conversation(conversation_id):
-    """Usuwa plik konwersacji i przełącza na inną konwersację."""
+def delete_conversation_callback(conversation_id):
+    """Callback: Usuwa plik konwersacji i ustawia flagę przeładowania."""
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
     if file_path.exists():
         os.remove(file_path)
         st.success(f"Konwersacja usunięta.")
-        # Po usunięciu, musimy wymusić przeładowanie i wybranie nowej konwersacji
+        # Ustawiamy flagę, aby przeładować stan i wybrać inną konwersację
         st.session_state['reload_app_state'] = True
     else:
         st.error("Nie można znaleźć konwersacji do usunięcia.")
@@ -274,6 +274,12 @@ if 'reload_app_state' not in st.session_state:
 if st.session_state["logged_in"]:
     # Sprawdzenie flagi przeładowania na początku głównego bloku
     if st.session_state.get('reload_app_state'):
+        # Jeśli pending_conversation_id jest ustawione, zapisujemy je do current.json zanim nastąpi rerun
+        if st.session_state.get('pending_conversation_id'):
+             with open(DB_PATH / "current.json", "w") as f:
+                f.write(json.dumps({"current_conversation_id": st.session_state['pending_conversation_id'],}))
+             st.session_state.pop('pending_conversation_id', None) # Usuwamy flagę
+        
         st.session_state['reload_app_state'] = False
         st.rerun() 
 
@@ -317,13 +323,12 @@ if st.session_state["logged_in"]:
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
             
-            # Używamy kolumn dla przycisku nazwy i przycisku usuwania
             col1, col2 = st.columns([0.8, 0.2])
             with col1:
                 st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
             with col2:
                 # Przycisk usuwania (czerwony)
-                st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation, args=(conv['id'],))
+                st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation_callback, args=(conv['id'],))
         st.divider()
 
         # 7. Okno osobowości chatbota (na końcu)
