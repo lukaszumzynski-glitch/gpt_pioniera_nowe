@@ -173,7 +173,6 @@ def create_new_conversation():
     load_conversation_to_state(conversation)
 
 def list_conversations():
-    """Zwraca listę słowników z ID i nazwami wszystkich zapisanych konwersacji."""
     conversations_list = []
     if DB_CONVERSATIONS_PATH.exists():
         for p in DB_CONVERSATIONS_PATH.glob("*.json"):
@@ -190,11 +189,12 @@ def list_conversations():
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation(conversation_id):
-    """Przełącza bieżącą konwersację na wybraną przez użytkownika."""
+    """Ustawia ID wybranej konwersacji w session_state i zaznacza, że trzeba przeładować."""
     save_current_conversation_messages() 
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
-    st.rerun()
+    # Ustaw flagę, że chcemy przeładować stan w następnej iteracji
+    st.session_state['reload_app_state'] = True
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -257,6 +257,11 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if st.session_state["logged_in"]:
+    # Sprawdzenie flagi przeładowania PRZED renderowaniem sidebara
+    if st.session_state.get('reload_app_state'):
+        st.session_state['reload_app_state'] = False
+        st.rerun() # Wymusza natychmiastowe przeładowanie stanu
+
     openai_client = init_openai_client()
 
     if openai_client is None:
@@ -265,7 +270,7 @@ if st.session_state["logged_in"]:
     if "messages" not in st.session_state:
         load_current_conversation()
 
-    # --- ZMIENIONA KOLEJNOŚĆ W SIDEBARZE ---
+    # --- POPRAWIONY UKŁAD SIDEBARA ---
     with st.sidebar:
         # 1. Przycisk Wyloguj (na samej górze)
         st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
@@ -288,13 +293,25 @@ if st.session_state["logged_in"]:
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
         st.divider()
 
-        # 5. Lista zapisanych konwersacji
+        # 5. Lista zapisanych konwersacji (klikanych)
         st.subheader("Historia konwersacji")
         conversations = list_conversations()
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            if st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active):
-                select_conversation(conv['id'])
+            
+            # Tworzymy przycisk. Używamy stylu markdown, aby wyglądał jak link/przycisk
+            button_style = "color: #007bff; background: none; border: none; cursor: pointer; text-align: left; padding: 0; margin: 0; text-decoration: underline;"
+            if is_active:
+                button_style = "color: black; font-weight: bold; background: none; border: none; text-align: left; padding: 0; margin: 0; text-decoration: none;"
+            
+            st.markdown(
+                f'<button id="btn_{conv["id"]}" style="{button_style}">{conv["name"]}</button>',
+                unsafe_allow_html=True
+            )
+            # Obsługujemy kliknięcie niestandardowego przycisku
+            if st.session_state.get(f"btn_{conv['id']}"):
+                 select_conversation(conv['id']) # To ustawi flagę reload_app_state
+                 # st.rerun() jest wywołane na górze głównego bloku if
         st.divider()
 
         # 6. Okno osobowości chatbota (na końcu)
