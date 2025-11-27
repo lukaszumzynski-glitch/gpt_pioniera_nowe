@@ -91,8 +91,7 @@ def load_current_conversation():
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
 
     current_user = st.session_state.get("username")
-    if not current_user:
-        return 
+    if not current_user: return 
 
     available_convs = list_conversations(current_user)
 
@@ -103,12 +102,13 @@ def load_current_conversation():
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
-
         # Upewniamy się, że konwersacja należy do aktualnego użytkownika
         if conversation.get('username') == current_user:
             load_conversation_to_state(conversation)
         else:
-            create_new_conversation()  # Utwórz nową konwersację, jeśli coś poszło nie tak
+            # Resetuj stan wiadomości i nazwy, jeśli konwersacja nie należy do użytkownika
+            st.session_state["messages"] = []
+            st.session_state["name"] = ""
 
 def save_current_conversation_messages():
     try:
@@ -265,6 +265,7 @@ def login_form():
             if correct_hash and bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username_input
+                st.session_state["messages"] = []  # Resetowanie wiadomości przy logowaniu
                 st.success(f"Zalogowano pomyślnie jako {username_input}!")
                 st.rerun()
             else:
@@ -315,7 +316,7 @@ if st.session_state["logged_in"]:
 
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
 
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input", ""))
         st.divider()
 
         st.subheader("Historia konwersacji")
