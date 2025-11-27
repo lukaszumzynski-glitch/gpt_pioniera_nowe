@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import base64
 import os
 import bcrypt
+import tomllib
 from datetime import datetime
 
 # Ładowanie zmiennych środowiskowych
@@ -98,9 +99,10 @@ def load_current_conversation():
     if not available_convs:
         create_new_conversation()
     else:
+        # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
-            conversation = json.loads(f.read())
+             conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
@@ -112,7 +114,7 @@ def save_current_conversation_messages():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "messages": new_messages}))
+                f.write(json.dumps({**conversation, "messages": new_messages,}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
 
@@ -126,7 +128,7 @@ def save_current_conversation_name():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "name": new_conversation_name}))
+                f.write(json.dumps({**conversation, "name": new_conversation_name,}))
             st.session_state["name"] = new_conversation_name
     except Exception as e:
         st.error(f"Błąd podczas zapisu nazwy do pliku: {e}")
@@ -140,21 +142,17 @@ def save_current_conversation_personality():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality}))
+                f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu osobowości do pliku: {e}")
 
 def create_new_conversation():
+    new_conversation_name = st.session_state.get("new_conversation_name_input") or f"Konwersacja {len(list(DB_CONVERSATIONS_PATH.glob('*.json'))) + 1}"
+
     conversation_ids = []
     for p in DB_CONVERSATIONS_PATH.glob("*.json"):
         conversation_ids.append(int(p.stem))
     next_id = max(conversation_ids) + 1 if conversation_ids else 1
-
-    # Ustawienie pustej nazwy dla nowej konwersacji
-    st.session_state["new_conversation_name_input"] = ""
-    st.session_state["id"] = next_id  # Ustawienie ID nowej konwersacji
-    st.session_state["messages"] = []  # Pusta wiadomość
-    st.session_state["name"] = ""  # Pusta nazwa konwersacji
 
     personality = DEFAULT_PERSONALITY
     if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
@@ -162,7 +160,7 @@ def create_new_conversation():
 
     conversation = {
         "id": next_id,
-        "name": "",  # Ustawienie pustej nazwy
+        "name": new_conversation_name,
         "chatbot_personality": personality,
         "messages": [],
         "username": st.session_state.get("username")
@@ -170,6 +168,7 @@ def create_new_conversation():
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
 
+    st.session_state["new_conversation_name_input"] = new_conversation_name
     st.session_state['reload_app_state'] = True
 
 def list_conversations(username=None):
@@ -186,13 +185,18 @@ def list_conversations(username=None):
                             "name": data.get("name", f"Konwersacja {data.get('id')}")
                         })
             except Exception as e:
-                print(f"Błąd podczas listowania konwersacji: {e}")
+                print(f"Błąd podczas listowania konversacji: {e}")
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
-    save_current_conversation_messages()
+    save_current_conversation_messages() 
     st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
+
+    # Załaduj wybraną konwersację
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+    load_conversation_to_state(conversation)
 
 def delete_conversation_callback(conversation_id):
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
@@ -301,7 +305,7 @@ if st.session_state["logged_in"]:
 
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
 
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input", ""))
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
         st.subheader("Historia konwersacji")
@@ -311,7 +315,7 @@ if st.session_state["logged_in"]:
 
             col1, col2 = st.columns([0.8, 0.2])
             with col1:
-                st.button(conv['name'] if conv['name'] else f"Konwersacja {conv['id']}", key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
+                st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
             with col2:
                 st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation_callback, args=(conv['id'],))
         st.divider()
