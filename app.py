@@ -6,17 +6,9 @@ from dotenv import load_dotenv
 import base64
 import os
 import bcrypt
-from datetime import datetime
 import tomllib
-import sys
 
-# Używamy tomllib (Python 3.11+)
-try:
-    import tomllib as toml
-except ImportError:
-    import toml
-
-# Ładowanie zmiennych środowiskowych (działa lokalnie i w Streamlit Cloud Secrets)
+# Ładowanie zmiennych środowiskowych
 load_dotenv()
 
 # --- Konfiguracja i Ceny ---
@@ -52,7 +44,7 @@ def init_openai_client():
             except Exception as e:
                 st.error(f"Wystąpił błąd podczas inicjalizacji klienta OpenAI: {e}")
         else:
-            st.warning("Klucz OpenAI API nie został znaleziony w zmiennych środowiskowych.")
+            st.warning("Klucz OpenAI API nie został znaleziony.")
             return None
     return st.session_state.get("openai_client")
 
@@ -72,7 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
         }
     return {
         "role": "assistant",
-        "content": response.choices[0].message.content,
+        "content": response.choices.message.content,
         "usage": usage,
     }
 
@@ -91,11 +83,9 @@ def load_conversation_to_state(conversation):
     st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
-    # Tworzymy foldery jeśli nie istnieją
     if not DB_PATH.exists():
         DB_PATH.mkdir(exist_ok=True)
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
-        # Tworzymy pierwszą konwersację startową
         conversation_id = 1
         conversation = {
             "id": conversation_id,
@@ -108,7 +98,6 @@ def load_current_conversation():
         with open(DB_PATH / "current.json", "w") as f:
             f.write(json.dumps({"current_conversation_id": conversation_id,}))
     
-    # Ładujemy aktualną konwersację
     with open(DB_PATH / "current.json", "r") as f:
         data = json.loads(f.read())
         conversation_id = data["current_conversation_id"]
@@ -128,13 +117,10 @@ def save_current_conversation_messages():
 def save_current_conversation_name():
     conversation_id = st.session_state["id"]
     new_conversation_name = st.session_state["new_conversation_name_input"]
-
     with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
         conversation = json.loads(f.read())
-
     with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
         f.write(json.dumps({**conversation, "name": new_conversation_name,}))
-    
     st.session_state["name"] = new_conversation_name
 
 def save_current_conversation_personality():
@@ -181,14 +167,27 @@ def calculate_costs(messages):
     total_cost_pln = total_cost_usd * USD_TO_PLN
     return total_cost_pln
 
-# --- Logowanie (Uproszczone) ---
+# --- Logowanie ---
 
 def login_form():
-    # Używamy os.getenv do pobierania danych z secrets.toml/env vars
-    correct_user = os.getenv("APP_USER", "admin") # Domyślny user jeśli brak zmiennej
-    correct_pass_hash = os.getenv("APP_PASS_HASH", "$2b$12$EXAMPLEHASH") # Zmień na swój hash
+    correct_user = os.getenv("APP_USER", "admin")
+    correct_pass_hash = os.getenv("APP_PASS_HASH", "$2b$12$EXAMPLEHASH")
 
-    st.title("Pionier GPT - Logowanie")
+    # KOD PRZYWRACAJĄCY LOGO I UKŁAD NAGŁÓWKA
+    img_path = "logo.png"
+    encoded_img = img_to_bytes(img_path)
+    if encoded_img:
+        header_html = f"""
+            <div style="display: flex; align-items: center; justify-content: flex-start;">
+                <img src="data:image/png;base64,{encoded_img}" width="100" height="100" style="vertical-align: middle; margin-right: 20px;">
+                <h1 style="display: inline; vertical-align: middle;">Pionier GPT</h1>
+            </div>
+            <p style="margin-top: 10px;">Logowanie</p>
+        """
+        st.markdown(header_html, unsafe_allow_html=True)
+    else:
+        st.title("Pionier GPT - Logowanie")
+
     username = st.text_input("Użytkownik")
     password = st.text_input("Hasło", type="password")
 
@@ -197,7 +196,7 @@ def login_form():
         if username == correct_user and bcrypt.checkpw(password.encode('utf-8'), correct_pass_hash.encode('utf-8')):
             st.session_state["logged_in"] = True
             st.success("Zalogowano pomyślnie!")
-            st.rerun() # Przeładowanie strony, aby pokazać UI
+            st.rerun()
         else:
             st.error("Nieprawidłowy login lub hasło.")
 
@@ -207,24 +206,16 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if st.session_state["logged_in"]:
-    # --------------------------------------------------
     # CAŁY INTERFEJS UŻYTKOWNIKA STREAMLIT
-    # --------------------------------------------------
-
-    # Inicjalizacja klienta OpenAI po zalogowaniu
     openai_client = init_openai_client()
 
     if "messages" not in st.session_state:
-        # POBIERAMY DANE Z PLIKÓW PRZY PIERWSZYM URUCHOMIENIU SESJI
         load_current_conversation()
 
-    # SIDEBAR
     with st.sidebar:
         st.header(st.session_state.get("name", "Nowa konwersacja"))
         st.text_input("Zmień nazwę:", key="new_conversation_name_input", on_change=save_current_conversation_name)
-        
         st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
-        
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
         st.divider()
         st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None), use_container_width=True)
@@ -233,7 +224,6 @@ if st.session_state["logged_in"]:
             total_cost_pln = calculate_costs(st.session_state["messages"])
             st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
 
-    # GŁÓWNY WIDOK CHATBOTA
     st.title(st.session_state.get("name", "Pionier GPT"))
 
     for message in st.session_state["messages"]:
@@ -250,15 +240,11 @@ if st.session_state["logged_in"]:
                 reply = chatbot_reply(prompt, st.session_state["messages"], openai_client)
             
             st.session_state["messages"].append(reply)
-            
-            # ZAPISUJEMY WIADOMOŚCI DO PLIKU PO KAŻDEJ ODPOWIEDZI
             save_current_conversation_messages() 
             
             with st.chat_message("assistant"):
                 st.markdown(reply["content"])
 
 else:
-    # --------------------------------------------------
     # WYŚWIETLANIE STRONY LOGOWANIA
-    # --------------------------------------------------
     login_form()
