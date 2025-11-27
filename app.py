@@ -103,7 +103,9 @@ def load_current_conversation():
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
-        load_conversation_to_state(conversation)
+        # Dodano filtr na username
+        if conversation.get('username') == current_user:
+            load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
     try:
@@ -163,7 +165,7 @@ def create_new_conversation():
         "name": new_conversation_name,
         "chatbot_personality": personality,
         "messages": [],
-        "username": st.session_state.get("username")
+        "username": st.session_state.get("username")  # Zapewnienie, że konwersacja jest przypisana do użytkownika
     }
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
@@ -185,7 +187,7 @@ def list_conversations(username=None):
                             "name": data.get("name", f"Konwersacja {data.get('id')}")
                         })
             except Exception as e:
-                print(f"Błąd podczas listowania konversacji: {e}")
+                print(f"Błąd podczas listowania konwersacji: {e}")
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
@@ -196,7 +198,10 @@ def select_conversation_callback(conversation_id):
     # Załaduj wybraną konwersację
     with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
         conversation = json.loads(f.read())
-    load_conversation_to_state(conversation)
+    if conversation.get('username') == st.session_state.get("username"):  # Sprawdzamy, czy konwersacja należy do aktualnego użytkownika
+        load_conversation_to_state(conversation)
+    else:
+        st.error("Nie możesz otworzyć tej konwersacji.")
 
 def delete_conversation_callback(conversation_id):
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
@@ -305,7 +310,7 @@ if st.session_state["logged_in"]:
 
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
 
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input", ""))
         st.divider()
 
         st.subheader("Historia konwersacji")
@@ -315,7 +320,7 @@ if st.session_state["logged_in"]:
 
             col1, col2 = st.columns([0.8, 0.2])
             with col1:
-                st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
+                st.button(conv['name'] if conv['name'] else f"Konwersacja {conv['id']}", key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
             with col2:
                 st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation_callback, args=(conv['id'],))
         st.divider()
