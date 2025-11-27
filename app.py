@@ -83,7 +83,6 @@ def load_conversation_to_state(conversation):
     st.session_state["name"] = conversation["name"]
     st.session_state["messages"] = conversation["messages"]
     st.session_state["chatbot_personality"] = conversation["chatbot_personality"]
-    # Ustawiamy wartość początkową inputu, która zostanie użyta przy renderowaniu sidebara
     st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
@@ -100,7 +99,12 @@ def load_current_conversation():
     if not available_convs:
         create_new_conversation()
     else:
-        latest_conv = available_convs[0] # Poprawione indeksowanie, bierzemy pierwszy element z listy
+        # Ten kod (load_current_conversation) jest wywoływany przy starcie sesji,
+        # więc powinien załadować aktualną konwersację z pliku 'current.json' (globalnego)
+        # i sprawdzić czy należy do current_user. Jeśli nie, załadować najnowszą usera.
+        
+        # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
+        latest_conv = available_convs[0] # Poprawione indeksowanie listy
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
@@ -121,7 +125,6 @@ def save_current_conversation_messages():
 def save_current_conversation_name():
     try:
         conversation_id = st.session_state["id"]
-        # Pobieramy nazwę z inputu w sidebarze (session_state inputu)
         new_conversation_name = st.session_state["new_conversation_name_input"] 
         
         file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
@@ -167,7 +170,7 @@ def create_new_conversation():
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
     
-    # DODANA LOGIKA RESETOWANIA INPUTU PO UTWORZENIU NOWEJ KONWERSACJI
+    # *** DODANA LOGIKA RESETOWANIA INPUTU PO UTWORZENIU NOWEJ KONWERSACJI ***
     st.session_state["new_conversation_name_input"] = f"Konwersacja {next_id}"
     
     st.session_state['reload_app_state'] = True
@@ -315,7 +318,7 @@ if st.session_state["logged_in"]:
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
         
         # 5. Zmień nazwę konwersacji (pole tekstowe, przeniesione wyżej)
-        # Ustawiamy wartość domyślną inputu na to, co jest aktualnie wczytane (co właśnie naprawiliśmy)
+        # Ustawiamy wartość domyślną inputu na to, co jest aktualnie wczytane
         st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
