@@ -64,7 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    assistant_message_content = response.choices[0].message.content
+    assistant_message_content = response.choices.message.content
 
     return {
         "role": "assistant",
@@ -83,8 +83,8 @@ def load_conversation_to_state(conversation):
     st.session_state["name"] = conversation["name"]
     st.session_state["messages"] = conversation["messages"]
     st.session_state["chatbot_personality"] = conversation["chatbot_personality"]
-    # Ustawiamy wartość inputu na nazwę ładowanej konwersacji
-    st.session_state["new_conversation_name_input"] = conversation["name"]
+    # *** POPRAWKA 1: Ustawienie inputu na załadowaną nazwę, aby odzwierciedlał stan bieżący ***
+    st.session_state["new_conversation_name_input"] = conversation["name"] 
 
 def load_current_conversation():
     if not DB_PATH.exists():
@@ -100,8 +100,13 @@ def load_current_conversation():
     if not available_convs:
         create_new_conversation()
     else:
-        latest_conv_summary = available_convs[0] # Poprawione indeksowanie listy
-        with open(DB_CONVERSATIONS_PATH / f"{latest_conv_summary['id']}.json", "r") as f:
+        # Ten kod (load_current_conversation) jest wywoływany przy starcie sesji,
+        # więc powinien załadować aktualną konwersację z pliku 'current.json' (globalnego)
+        # i sprawdzić czy należy do current_user. Jeśli nie, załadować najnowszą usera.
+        
+        # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
+        latest_conv = available_convs # Poprawione indeksowanie listy
+        with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
 
@@ -116,32 +121,28 @@ def save_current_conversation_messages():
             with open(file_path, "w") as f:
                 f.write(json.dumps({**conversation, "messages": new_messages,}))
     except Exception as e:
+        # st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
         print(f"Błąd podczas zapisu wiadomości do pliku: {e}")
 
 def save_current_conversation_name():
-    # POPRAWKA: Odczyt nazwy z inputu Streamlit bezpośrednio w funkcji callback
+    # *** POPRAWKA 1: Poprawiona logika zapisu nazwy z inputu st.text_input po naciśnięciu ENTER ***
     try:
         conversation_id = st.session_state["id"]
-        # Pobieramy aktualną wartość inputu z session_state
+        # Odczytujemy wartość bezpośrednio z klucza session_state przypisanego do inputu
         new_conversation_name = st.session_state.get("new_conversation_name_input", "").strip()
-        
-        # Zapobiegaj zapisaniu pustej nazwy
-        if not new_conversation_name:
-            # Użyj domyślnej nazwy, jeśli użytkownik wyczyścił pole i nacisnął Enter
-            new_conversation_name = f"Konwersacja {conversation_id}"
 
+        if not new_conversation_name:
+             new_conversation_name = f"Konwersacja {conversation_id}"
+        
         file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
         if file_path.exists():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "name": new_conversation_name}))
-            
-            # Aktualizujemy nazwę w st.session_state
+                f.write(json.dumps({**conversation, "name": new_conversation_name,}))
             st.session_state["name"] = new_conversation_name
-            
-            # Flaga wymuszająca odświeżenie paska bocznego (aby lista nazw się zaktualizowała)
-            st.session_state['reload_app_state'] = True
+            # Wymuszamy odświeżenie listy konwersacji w sidebarze
+            st.session_state['reload_app_state'] = True 
     except Exception as e:
         print(f"Błąd podczas zapisu nazwy do pliku: {e}")
 
@@ -171,7 +172,7 @@ def create_new_conversation():
     if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
         personality = st.session_state["chatbot_personality"]
 
-    # Nazwa początkowa, która może być nadpisana przez callback save_current_conversation_name
+    # Nazwa początkowa
     initial_name = f"Konwersacja {next_id}"
 
     conversation = {
@@ -184,7 +185,7 @@ def create_new_conversation():
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
     
-    # *** POPRAWKA: Automatycznie załaduj nową konwersację do stanu sesji od razu po utworzeniu pliku ***
+    # *** POPRAWKA 1: Ładowanie nowej konwersacji do state od razu po jej utworzeniu ***
     load_conversation_to_state(conversation)
 
     st.session_state['reload_app_state'] = True
@@ -205,13 +206,14 @@ def list_conversations(username=None):
                             "name": data.get("name", f"Konwersacja {data.get('id')}")
                         })
             except Exception as e:
+                # print(f"Błąd podczas ładowania pliku konwersacji {p}: {e}")
                 continue
     
     # Sortowanie listy konwersacji od najnowszej (najwyższe ID) do najstarszej
     conversations_list.sort(key=lambda x: x['id'], reverse=True)
     return conversations_list
 
-# *** POPRAWKA NR 2: Nowa funkcja do przełączania aktywnej konwersacji (callback dla przycisków) ***
+# *** POPRAWKA 2: Nowa funkcja do aktywnego przełączania konwersacji (callback dla st.button) ***
 def switch_conversation(conversation_id):
     """Ładuje wybraną konwersację z pliku do st.session_state."""
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
@@ -221,19 +223,16 @@ def switch_conversation(conversation_id):
         
         if conversation_data.get("username") == st.session_state.get("username"):
             load_conversation_to_state(conversation_data)
-            st.session_state['reload_app_state'] = True
-        else:
-            st.error("Brak dostępu do tej konwersacji.")
+            st.session_state['reload_app_state'] = True # Wymuś odświeżenie UI
 
-
-# --- Authentication System ---
+# --- Authentication System (Twoj oryginalny kod) ---
 
 DB_USERS_PATH = DB_PATH / "users.toml"
 
 def render_login_page():
     st.set_page_config(page_title="Chatbot Logowanie", page_icon=":speech_balloon:")
     
-    # Użyj CSS, aby wyśrodkować formularz logowania (to jest z Twojego oryginalnego kodu)
+    # Użyj CSS, aby wyśrodkować formularz logowania
     st.markdown("""
     <style>
     .stApp {
@@ -319,7 +318,7 @@ def logout():
     st.session_state["id"] = None
     st.session_state["name"] = None
 
-# --- Main App ---
+# --- Main App (Twoj oryginalny kod) ---
 
 def main():
     if "logged_in" not in st.session_state:
@@ -339,7 +338,7 @@ def main():
         if "messages" not in st.session_state or not st.session_state["id"]:
             load_current_conversation()
 
-        # SIDEBAR (oryginalny układ)
+        # SIDEBAR (Twoj oryginalny uklad)
         with st.sidebar:
             st.header(f"Witaj, {st.session_state['username']}")
             st.button("Wyloguj", on_click=logout)
@@ -349,11 +348,11 @@ def main():
             st.header("Konwersacje")
 
             # Input do tworzenia nowej konwersacji/zmiany nazwy
-            # Callback on_change=save_current_conversation_name zapisuje nazwę po naciśnięciu Enter
             st.text_input(
                 "Nazwa konwersacji:",
                 key="new_conversation_name_input",
-                on_change=save_current_conversation_name,
+                on_change=save_current_conversation_name, # Callback zapisuje po Enter
+                label_visibility="collapsed"
             )
 
             st.button(
@@ -363,18 +362,18 @@ def main():
             )
             st.markdown("---")
 
-            # Lista zapisanych konwersacji
+            # Lista zapisanych konwersacji (minimalna zmiana na przycisk z callbackiem)
             available_conversations = list_conversations(st.session_state["username"])
             for conv in available_conversations:
                 is_active = st.session_state.get("id") == conv['id']
                 if is_active:
                     st.markdown(f"**> {conv['name']}**")
                 else:
-                    # Używamy przycisku, który wywołuje nową funkcję switch_conversation
+                    # *** POPRAWKA 2: Używamy przycisku z funkcją przełączania ***
                     st.button(
                         conv['name'], 
                         key=f"switch_{conv['id']}", 
-                        on_click=switch_conversation, 
+                        on_click=switch_conversation, # Używa nowej funkcji switch
                         args=(conv['id'],),
                         use_container_width=True
                     )
