@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import base64
 import os
 import bcrypt
+import tomllib
 from datetime import datetime
 
 # Ładowanie zmiennych środowiskowych
@@ -91,24 +92,24 @@ def load_current_conversation():
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
 
     current_user = st.session_state.get("username")
-    if not current_user: return 
+    if not current_user: 
+        return 
 
     available_convs = list_conversations(current_user)
 
     if not available_convs:
+        # Nie ładujemy żadnej konwersacji dla nowego użytkownika
+        st.session_state["messages"] = []  # Resetowanie wiadomości
+        st.session_state["name"] = ""  # Resetowanie nazwy
         create_new_conversation()
     else:
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
-        # Upewniamy się, że konwersacja należy do aktualnego użytkownika
+        # Dodano filtr na username
         if conversation.get('username') == current_user:
             load_conversation_to_state(conversation)
-        else:
-            # Resetuj stan wiadomości i nazwy, jeśli konwersacja nie należy do użytkownika
-            st.session_state["messages"] = []
-            st.session_state["name"] = ""
 
 def save_current_conversation_messages():
     try:
@@ -118,10 +119,8 @@ def save_current_conversation_messages():
         if file_path.exists():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
-            # Zaktualizowane: zachowujemy username podczas zapisu
-            conversation["messages"] = new_messages
             with open(file_path, "w") as f:
-                f.write(json.dumps(conversation))
+                f.write(json.dumps({**conversation, "messages": new_messages,}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
 
@@ -265,7 +264,6 @@ def login_form():
             if correct_hash and bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username_input
-                st.session_state["messages"] = []  # Resetowanie wiadomości przy logowaniu
                 st.success(f"Zalogowano pomyślnie jako {username_input}!")
                 st.rerun()
             else:
@@ -316,7 +314,7 @@ if st.session_state["logged_in"]:
 
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
 
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input", ""))
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
         st.subheader("Historia konwersacji")
