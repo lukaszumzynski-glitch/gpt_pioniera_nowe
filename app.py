@@ -185,13 +185,18 @@ def list_conversations(username=None):
                             "name": data.get("name", f"Konwersacja {data.get('id')}")
                         })
             except Exception as e:
-                print(f"Błąd podczas listowania konwersacji: {e}")
+                print(f"Błąd podczas listowania konversacji: {e}")
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
     save_current_conversation_messages() 
     st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
+
+    # Załaduj wybraną konwersację
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+    load_conversation_to_state(conversation)
 
 def delete_conversation_callback(conversation_id):
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
