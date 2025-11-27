@@ -92,15 +92,16 @@ def load_current_conversation():
         DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
 
     current_user = st.session_state.get("username")
-    if not current_user: 
+    if not current_user:
         return 
+
+    # Reset stanu konwersacji
+    st.session_state["messages"] = []
+    st.session_state["name"] = ""
 
     available_convs = list_conversations(current_user)
 
     if not available_convs:
-        # Nie ładujemy żadnej konwersacji dla nowego użytkownika
-        st.session_state["messages"] = []  # Resetowanie wiadomości
-        st.session_state["name"] = ""  # Resetowanie nazwy
         create_new_conversation()
     else:
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
@@ -298,7 +299,10 @@ if st.session_state["logged_in"]:
 
     # --- POPRAWIONY UKŁAD SIDEBARA ---
     with st.sidebar:
-        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
+        st.button("Wyloguj", on_click=lambda: (st.session_state.pop("logged_in", None),
+                                                 st.session_state.pop("username", None),
+                                                 st.session_state.pop("messages", None),
+                                                 st.session_state.pop("name", None)), use_container_width=True)
         st.divider()
 
         img_path = "logo.png"
@@ -335,7 +339,7 @@ if st.session_state["logged_in"]:
     # GŁÓWNY WIDOK CHATBOTA
     st.title(st.session_state.get("name", "Pionier GPT"))
 
-    for message in st.session_state["messages"]:
+    for message in st.session_state.get("messages", []):
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
