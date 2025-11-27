@@ -110,29 +110,52 @@ def load_current_conversation():
     load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
-    conversation_id = st.session_state["id"]
-    new_messages = st.session_state["messages"]
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
-        conversation = json.loads(f.read())
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
-        f.write(json.dumps({**conversation, "messages": new_messages,}))
+    try:
+        conversation_id = st.session_state["id"]
+        new_messages = st.session_state["messages"]
+        # Sprawdzamy, czy plik istnieje przed odczytem, żeby uniknąć błędów
+        file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                conversation = json.loads(f.read())
+            with open(file_path, "w") as f:
+                f.write(json.dumps({**conversation, "messages": new_messages,}))
+        else:
+            st.warning(f"Plik konwersacji {file_path} nie istnieje. Nie można zapisać wiadomości.")
+    except Exception as e:
+        st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
+        print(f"DEBUG: Błąd zapisu messages: {e}")
+
 
 def save_current_conversation_name():
-    conversation_id = st.session_state["id"]
-    new_conversation_name = st.session_state["new_conversation_name_input"]
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
-        conversation = json.loads(f.read())
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
-        f.write(json.dumps({**conversation, "name": new_conversation_name,}))
-    st.session_state["name"] = new_conversation_name
+    try:
+        conversation_id = st.session_state["id"]
+        new_conversation_name = st.session_state["new_conversation_name_input"]
+        file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                conversation = json.loads(f.read())
+            with open(file_path, "w") as f:
+                f.write(json.dumps({**conversation, "name": new_conversation_name,}))
+            st.session_state["name"] = new_conversation_name
+    except Exception as e:
+        st.error(f"Błąd podczas zapisu nazwy do pliku: {e}")
+        print(f"DEBUG: Błąd zapisu name: {e}")
+
 
 def save_current_conversation_personality():
-    conversation_id = st.session_state["id"]
-    new_chatbot_personality = st.session_state["new_chatbot_personality"]
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
-        conversation = json.loads(f.read())
-    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
-        f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
+    try:
+        conversation_id = st.session_state["id"]
+        new_chatbot_personality = st.session_state["new_chatbot_personality"]
+        file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
+        if file_path.exists():
+            with open(file_path, "r") as f:
+                conversation = json.loads(f.read())
+            with open(file_path, "w") as f:
+                f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
+    except Exception as e:
+        st.error(f"Błąd podczas zapisu osobowości do pliku: {e}")
+        print(f"DEBUG: Błąd zapisu personality: {e}")
 
 def create_new_conversation():
     conversation_ids = []
