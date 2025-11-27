@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import base64
 import os
 import bcrypt
-import tomllib
 from datetime import datetime
 
 # Ładowanie zmiennych środowiskowych
@@ -101,7 +100,7 @@ def load_current_conversation():
     else:
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
-             conversation = json.loads(f.read())
+            conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
@@ -113,7 +112,7 @@ def save_current_conversation_messages():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "messages": new_messages,}))
+                f.write(json.dumps({**conversation, "messages": new_messages}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
 
@@ -127,7 +126,7 @@ def save_current_conversation_name():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "name": new_conversation_name,}))
+                f.write(json.dumps({**conversation, "name": new_conversation_name}))
             st.session_state["name"] = new_conversation_name
     except Exception as e:
         st.error(f"Błąd podczas zapisu nazwy do pliku: {e}")
@@ -141,7 +140,7 @@ def save_current_conversation_personality():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
+                f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu osobowości do pliku: {e}")
 
@@ -153,6 +152,9 @@ def create_new_conversation():
 
     # Ustawienie pustej nazwy dla nowej konwersacji
     st.session_state["new_conversation_name_input"] = ""
+    st.session_state["id"] = next_id  # Ustawienie ID nowej konwersacji
+    st.session_state["messages"] = []  # Pusta wiadomość
+    st.session_state["name"] = ""  # Pusta nazwa konwersacji
 
     personality = DEFAULT_PERSONALITY
     if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
@@ -160,7 +162,7 @@ def create_new_conversation():
 
     conversation = {
         "id": next_id,
-        "name": "",  # Ustawienie pustej nazwy, którą użytkownik wprowadzi
+        "name": "",  # Ustawienie pustej nazwy
         "chatbot_personality": personality,
         "messages": [],
         "username": st.session_state.get("username")
@@ -188,7 +190,7 @@ def list_conversations(username=None):
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
-    save_current_conversation_messages() 
+    save_current_conversation_messages()
     st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
 
