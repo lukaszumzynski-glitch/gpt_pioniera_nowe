@@ -310,7 +310,7 @@ if st.session_state["logged_in"]:
 
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
 
-        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input", ""))
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
         st.subheader("Historia konwersacji")
