@@ -64,11 +64,12 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    # --- POPRAWIONA LINIA KODU ---
-    # Musimy odwołać się do pierwszego elementu listy 'choices' (response.choices[0])
+    # POPRAWKA BŁĘDU AttributeError
+    assistant_message_content = response.choices[0].message.content
+
     return {
         "role": "assistant",
-        "content": response.choices[0].message.content, 
+        "content": assistant_message_content,
         "usage": usage,
     }
 
@@ -113,19 +114,14 @@ def save_current_conversation_messages():
     try:
         conversation_id = st.session_state["id"]
         new_messages = st.session_state["messages"]
-        # Sprawdzamy, czy plik istnieje przed odczytem, żeby uniknąć błędów
         file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
         if file_path.exists():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
             with open(file_path, "w") as f:
                 f.write(json.dumps({**conversation, "messages": new_messages,}))
-        else:
-            st.warning(f"Plik konwersacji {file_path} nie istnieje. Nie można zapisać wiadomości.")
     except Exception as e:
         st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
-        print(f"DEBUG: Błąd zapisu messages: {e}")
-
 
 def save_current_conversation_name():
     try:
@@ -140,8 +136,6 @@ def save_current_conversation_name():
             st.session_state["name"] = new_conversation_name
     except Exception as e:
         st.error(f"Błąd podczas zapisu nazwy do pliku: {e}")
-        print(f"DEBUG: Błąd zapisu name: {e}")
-
 
 def save_current_conversation_personality():
     try:
@@ -155,7 +149,6 @@ def save_current_conversation_personality():
                 f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
     except Exception as e:
         st.error(f"Błąd podczas zapisu osobowości do pliku: {e}")
-        print(f"DEBUG: Błąd zapisu personality: {e}")
 
 def create_new_conversation():
     conversation_ids = []
@@ -178,6 +171,30 @@ def create_new_conversation():
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
 
     load_conversation_to_state(conversation)
+
+def list_conversations():
+    """Zwraca listę słowników z ID i nazwami wszystkich zapisanych konwersacji."""
+    conversations_list = []
+    if DB_CONVERSATIONS_PATH.exists():
+        for p in DB_CONVERSATIONS_PATH.glob("*.json"):
+            try:
+                with open(p, "r") as f:
+                    data = json.loads(f.read())
+                    conversations_list.append({
+                        "id": data.get("id"),
+                        "name": data.get("name", f"Konwersacja {data.get('id')}")
+                    })
+            except Exception as e:
+                print(f"Błąd podczas listowania konwersacji: {e}")
+                
+    return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
+
+def select_conversation(conversation_id):
+    """Przełącza bieżącą konwersację na wybraną przez użytkownika."""
+    save_current_conversation_messages() 
+    with open(DB_PATH / "current.json", "w") as f:
+        f.write(json.dumps({"current_conversation_id": conversation_id,}))
+    st.rerun()
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -267,14 +284,24 @@ if st.session_state["logged_in"]:
             total_cost_pln = calculate_costs(st.session_state["messages"])
             st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
         
-        # 4. Nowa konwersacja (przycisk i nazwa aktualnej)
+        # 4. Nowa konwersacja (przycisk)
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
-        st.header(st.session_state.get("name", "Aktualna konwersacja"))
-        # Możesz dodać tutaj listę zapisanych konwersacji, jeśli masz funkcję do ich listowania
-        
-        # 5. Okno osobowości chatbota (na końcu)
-        st.text_input("Zmień nazwę:", key="new_conversation_name_input", on_change=save_current_conversation_name)
+        st.divider()
+
+        # 5. Lista zapisanych konwersacji
+        st.subheader("Historia konwersacji")
+        conversations = list_conversations()
+        for conv in conversations:
+            is_active = conv['id'] == st.session_state.get('id')
+            if st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active):
+                select_conversation(conv['id'])
+        st.divider()
+
+        # 6. Okno osobowości chatbota (na końcu)
+        st.subheader("Ustawienia Chatbota")
+        st.text_input("Zmień nazwę konwersacji:", key="new_conversation_name_input", on_change=save_current_conversation_name)
         st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
+
 
     # GŁÓWNY WIDOK CHATBOTA
     st.title(st.session_state.get("name", "Pionier GPT"))
