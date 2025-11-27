@@ -63,9 +63,12 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "prompt_tokens": response.usage.prompt_tokens,
             "total_tokens": response.usage.total_tokens,
         }
+    
+    # --- POPRAWIONA LINIA KODU ---
+    # Musimy odwołać się do pierwszego elementu listy 'choices' (response.choices[0])
     return {
         "role": "assistant",
-        "content": response.choices.message.content,
+        "content": response.choices[0].message.content, 
         "usage": usage,
     }
 
