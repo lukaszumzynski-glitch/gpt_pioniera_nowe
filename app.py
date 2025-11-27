@@ -7,8 +7,9 @@ import base64
 import os
 import bcrypt
 import tomllib
+from datetime import datetime
 
-# Ładowanie zmiennych środowiskowych
+# Ładowanie zmiennych środowiskowych (działa lokalnie i w Streamlit Cloud Secrets)
 load_dotenv()
 
 # --- Konfiguracja i Ceny ---
@@ -167,12 +168,9 @@ def calculate_costs(messages):
     total_cost_pln = total_cost_usd * USD_TO_PLN
     return total_cost_pln
 
-# --- Logowanie ---
+# --- Logowanie (Obsługa wielu użytkowników) ---
 
 def login_form():
-    correct_user = os.getenv("APP_USER", "admin")
-    correct_pass_hash = os.getenv("APP_PASS_HASH", "$2b$12$EXAMPLEHASH")
-
     # KOD PRZYWRACAJĄCY LOGO I UKŁAD NAGŁÓWKA
     img_path = "logo.png"
     encoded_img = img_to_bytes(img_path)
@@ -188,15 +186,33 @@ def login_form():
     else:
         st.title("Pionier GPT - Logowanie")
 
-    username = st.text_input("Użytkownik")
-    password = st.text_input("Hasło", type="password")
+    username_input = st.text_input("Użytkownik")
+    password_input = st.text_input("Hasło", type="password")
 
     if st.button("Zaloguj"):
-        # Weryfikacja hasła bcrypt
-        if username == correct_user and bcrypt.checkpw(password.encode('utf-8'), correct_pass_hash.encode('utf-8')):
-            st.session_state["logged_in"] = True
-            st.success("Zalogowano pomyślnie!")
-            st.rerun()
+        # Mapa użytkowników i ich hashy pobrana ze zmiennych środowiskowych (secrets)
+        # Używamy dict comprehension, aby odfiltrować puste zmienne (gdyby np. mentor nie miał jeszcze hasha)
+        users_db = {
+            os.getenv("user_kasia"): os.getenv("hash_kasia"),
+            os.getenv("user_ewunia"): os.getenv("hash_ewunia"),
+            os.getenv("user_zbyszek"): os.getenv("hash_zbyszek"),
+            os.getenv("user_Pionier"): os.getenv("hash_Pionier"),
+            os.getenv("user_mentor"): os.getenv("hash_mentor"),
+        }
+        # Usuwamy wpisy, które mają None (bo zmienna nie istnieje/jest pusta)
+        users_db = {k: v for k, v in users_db.items() if k is not None and v is not None}
+
+        # Sprawdzanie logowania
+        if username_input in users_db:
+            correct_hash = users_db[username_input]
+            # Sprawdzenie hasła bcrypt. checkpw wymaga by oba argumenty były bytes (encode('utf-8'))
+            if bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = username_input
+                st.success(f"Zalogowano pomyślnie jako {username_input}!")
+                st.rerun()
+            else:
+                st.error("Nieprawidłowy login lub hasło.")
         else:
             st.error("Nieprawidłowy login lub hasło.")
 
