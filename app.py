@@ -64,7 +64,6 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    # POPRAWKA BŁĘDU AttributeError
     assistant_message_content = response.choices.message.content
 
     return {
@@ -169,8 +168,10 @@ def create_new_conversation():
         f.write(json.dumps(conversation))
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
+    
+    # Ustawiamy flagę przeładowania po utworzeniu nowej konwersacji
+    st.session_state['reload_app_state'] = True
 
-    load_conversation_to_state(conversation)
 
 def list_conversations():
     conversations_list = []
@@ -188,14 +189,12 @@ def list_conversations():
                 
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
-def select_conversation(conversation_id):
-    """Przełącza bieżącą konwersację na wybraną przez użytkownika."""
-    # Zapisz bieżącą konwersację przed zmianą
+def select_conversation_callback(conversation_id):
+    """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
     save_current_conversation_messages() 
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
-    # Używamy st.rerun() bezpośrednio w funkcji wywoływanej przez on_click
-    st.rerun()
+    st.session_state['reload_app_state'] = True # Ustawiamy flagę, ale nie rerunujemy tutaj
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -256,8 +255,17 @@ def login_form():
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
+# Inicjalizacja flagi przeładowania, jeśli jej nie ma
+if 'reload_app_state' not in st.session_state:
+    st.session_state['reload_app_state'] = False
+
 
 if st.session_state["logged_in"]:
+    # Sprawdzenie flagi przeładowania na początku głównego bloku
+    if st.session_state.get('reload_app_state'):
+        st.session_state['reload_app_state'] = False
+        st.rerun() # To jest bezpieczne miejsce na rerun po callbacku
+
     openai_client = init_openai_client()
 
     if openai_client is None:
@@ -297,8 +305,8 @@ if st.session_state["logged_in"]:
         conversations = list_conversations()
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            # Przycisk Streamlit jest używany z on_click i disabled, co działa poprawnie z st.rerun w select_conversation
-            st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation, args=(conv['id'],))
+            # Używamy on_click_callback do ustawienia flagi, a nie wywołania st.rerun()
+            st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
         st.divider()
 
         # 7. Okno osobowości chatbota (na końcu)
