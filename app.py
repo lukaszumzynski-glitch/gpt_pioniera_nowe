@@ -65,7 +65,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
         }
     
     # POPRAWKA BŁĘDU AttributeError
-    assistant_message_content = response.choices[0].message.content
+    assistant_message_content = response.choices.message.content
 
     return {
         "role": "assistant",
@@ -189,12 +189,13 @@ def list_conversations():
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation(conversation_id):
-    """Ustawia ID wybranej konwersacji w session_state i zaznacza, że trzeba przeładować."""
+    """Przełącza bieżącą konwersację na wybraną przez użytkownika."""
+    # Zapisz bieżącą konwersację przed zmianą
     save_current_conversation_messages() 
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
-    # Ustaw flagę, że chcemy przeładować stan w następnej iteracji
-    st.session_state['reload_app_state'] = True
+    # Używamy st.rerun() bezpośrednio w funkcji wywoływanej przez on_click
+    st.rerun()
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -257,11 +258,6 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if st.session_state["logged_in"]:
-    # Sprawdzenie flagi przeładowania PRZED renderowaniem sidebara
-    if st.session_state.get('reload_app_state'):
-        st.session_state['reload_app_state'] = False
-        st.rerun() # Wymusza natychmiastowe przeładowanie stanu
-
     openai_client = init_openai_client()
 
     if openai_client is None:
@@ -291,32 +287,22 @@ if st.session_state["logged_in"]:
         
         # 4. Nowa konwersacja (przycisk)
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
+        
+        # 5. Zmień nazwę konwersacji (pole tekstowe, przeniesione wyżej)
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name)
         st.divider()
 
-        # 5. Lista zapisanych konwersacji (klikanych)
+        # 6. Lista zapisanych konwersacji (z ramkami, aktywna)
         st.subheader("Historia konwersacji")
         conversations = list_conversations()
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            
-            # Tworzymy przycisk. Używamy stylu markdown, aby wyglądał jak link/przycisk
-            button_style = "color: #007bff; background: none; border: none; cursor: pointer; text-align: left; padding: 0; margin: 0; text-decoration: underline;"
-            if is_active:
-                button_style = "color: black; font-weight: bold; background: none; border: none; text-align: left; padding: 0; margin: 0; text-decoration: none;"
-            
-            st.markdown(
-                f'<button id="btn_{conv["id"]}" style="{button_style}">{conv["name"]}</button>',
-                unsafe_allow_html=True
-            )
-            # Obsługujemy kliknięcie niestandardowego przycisku
-            if st.session_state.get(f"btn_{conv['id']}"):
-                 select_conversation(conv['id']) # To ustawi flagę reload_app_state
-                 # st.rerun() jest wywołane na górze głównego bloku if
+            # Przycisk Streamlit jest używany z on_click i disabled, co działa poprawnie z st.rerun w select_conversation
+            st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation, args=(conv['id'],))
         st.divider()
 
-        # 6. Okno osobowości chatbota (na końcu)
+        # 7. Okno osobowości chatbota (na końcu)
         st.subheader("Ustawienia Chatbota")
-        st.text_input("Zmień nazwę konwersacji:", key="new_conversation_name_input", on_change=save_current_conversation_name)
         st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
 
 
