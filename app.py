@@ -102,7 +102,7 @@ def load_current_conversation():
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
-             conversation = json.loads(f.read())
+            conversation = json.loads(f.read())
         # Dodano filtr na username
         if conversation.get('username') == current_user:
             load_conversation_to_state(conversation)
