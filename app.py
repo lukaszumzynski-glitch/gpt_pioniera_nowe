@@ -9,27 +9,20 @@ import bcrypt
 from datetime import datetime
 import tomllib
 import sys
-import psycopg2 # Importujemy bibliotekę do PostgreSQL
 
-# Ładowanie zmiennych środowiskowych z pliku .env (działa lokalnie, w Streamlit Cloud używa Secrets)
-load_dotenv()
-
-# Używamy tomllib (Python 3.11+) lub zainstaluj pip install toml
+# Używamy tomllib (Python 3.11+)
 try:
     import tomllib as toml
 except ImportError:
     import toml
 
+# Ładowanie zmiennych środowiskowych (działa lokalnie i w Streamlit Cloud Secrets)
+load_dotenv()
+
 # --- Konfiguracja i Ceny ---
 model_pricings = {
-    "gpt-4o": {
-        "input_tokens": 5.00 / 1_000_000,
-        "output_tokens": 15.00 / 1_000_000,
-    },
-    "gpt-4o-mini": {
-        "input_tokens": 0.150 / 1_000_000,
-        "output_tokens": 0.600 / 1_000_1_000,
-    }
+    "gpt-4o": {"input_tokens": 5.00 / 1_000_000, "output_tokens": 15.00 / 1_000_000},
+    "gpt-4o-mini": {"input_tokens": 0.150 / 1_000_000, "output_tokens": 0.600 / 1_000_000}
 }
 MODEL = "gpt-4o-mini"
 USD_TO_PLN = 3.97
@@ -41,7 +34,6 @@ Odpowiadaj na pytania w sposób zwięzły i zrozumiały.
 
 # --- Funkcje Pomocnicze ---
 def img_to_bytes(img_path):
-    """Konwertuje obraz na ciąg bajtów zakodowany w Base64."""
     if Path(img_path).exists():
         img_bytes = Path(img_path).read_bytes()
         encoded = base64.b64encode(img_bytes).decode()
@@ -50,14 +42,13 @@ def img_to_bytes(img_path):
 
 def init_openai_client():
     if "openai_client" not in st.session_state:
-        api_key = os.getenv("OPENAI_API_KEY") # Pobieramy z env vars
+        api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
                 st.session_state.openai_client = OpenAI(api_key=api_key)
             except AuthenticationError:
                 st.error("Podany klucz API OpenAI jest nieprawidłowy.")
                 st.session_state["logged_in"] = False
-                st.session_state.pop("openai_api_key", None)
             except Exception as e:
                 st.error(f"Wystąpił błąd podczas inicjalizacji klienta OpenAI: {e}")
         else:
@@ -66,21 +57,12 @@ def init_openai_client():
     return st.session_state.get("openai_client")
 
 def chatbot_reply(user_prompt, memory, openai_client_instance):
-    messages = [
-        {
-            "role": "system",
-            "content": st.session_state["chatbot_personality"],
-        },
-    ]
+    messages = [{"role": "system", "content": st.session_state["chatbot_personality"]}]
     for message in memory:
         messages.append({"role": message["role"], "content": message["content"]})
-
     messages.append({"role": "user", "content": user_prompt})
 
-    response = openai_client_instance.chat.completions.create(
-        model=MODEL,
-        messages=messages
-    )
+    response = openai_client_instance.chat.completions.create(model=MODEL, messages=messages)
     usage = {}
     if response.usage:
         usage = {
@@ -88,7 +70,6 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "prompt_tokens": response.usage.prompt_tokens,
             "total_tokens": response.usage.total_tokens,
         }
-
     return {
         "role": "assistant",
         "content": response.choices[0].message.content,
@@ -96,104 +77,95 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
     }
 
 #
-# CONVERSATION HISTORY AND DATABASE (Logika przeniesiona do DB)
+# CONVERSATION HISTORY AND DATABASE (ZAPIS PLIKOWY)
 #
-# Zmienne DB_PATH i DB_CONVERSATIONS_PATH zostały usunięte.
 
-def get_db_connection():
-    """Tworzy połączenie z bazą danych PostgreSQL na DigitalOcean."""
-    try:
-        conn = psycopg2.connect(
-            host=os.getenv("DB_HOST"),
-            database=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USER"),
-            password=os.getenv("DB_PASSWORD")
-        )
-        return conn
-    except psycopg2.OperationalError as e:
-        st.error(f"Błąd połączenia z bazą danych: {e}")
-        return None
+DB_PATH = Path("db")
+DB_CONVERSATIONS_PATH = DB_PATH / "conversations"
 
-def load_conversation_to_state(conversation_data):
-    """Ładuje dane konwersacji z obiektu (np. z wyniku zapytania SQL) do session_state."""
-    st.session_state["id"] = conversation_data["id"]
-    st.session_state["name"] = conversation_data["name"]
-    # Zakładamy, że messages są przechowywane w DB jako JSON string lub array/json type
-    st.session_state["messages"] = json.loads(conversation_data["messages"]) if isinstance(conversation_data["messages"], str) else conversation_data["messages"]
-    st.session_state["chatbot_personality"] = conversation_data["chatbot_personality"]
-    st.session_state["new_conversation_name_input"] = conversation_data["name"]
-
-# --- FUNKCJE BAZODANOWE (SZABLONY - WYMAGAJĄ IMPLEMENTACJI SQL) ---
+def load_conversation_to_state(conversation):
+    st.session_state["id"] = conversation["id"]
+    st.session_state["name"] = conversation["name"]
+    st.session_state["messages"] = conversation["messages"]
+    st.session_state["chatbot_personality"] = conversation["chatbot_personality"]
+    st.session_state["new_conversation_name_input"] = conversation["name"]
 
 def load_current_conversation():
-    """Pobiera aktualną konwersację z bazy danych."""
-    conn = get_db_connection()
-    if conn:
-        with conn.cursor() as cur:
-            # Pamiętaj: musisz stworzyć tabelę `conversations` w swojej bazie danych!
-            # Przykład zapytania (wymaga dostosowania):
-            # cur.execute("SELECT * FROM conversations WHERE is_current = TRUE LIMIT 1")
-            # conversation = cur.fetchone() 
-            # if conversation:
-            #     # Konwertuj wynik krotki (tuple) na słownik (dict) jeśli to konieczne 
-            #     load_conversation_to_state(conversation_dict)
-            # else:
-            #     create_new_conversation() # Jeśli brak, tworzymy nową
-            pass # Zaimplementuj logikę SQL tutaj
-        conn.close()
+    # Tworzymy foldery jeśli nie istnieją
+    if not DB_PATH.exists():
+        DB_PATH.mkdir(exist_ok=True)
+        DB_CONVERSATIONS_PATH.mkdir(exist_ok=True)
+        # Tworzymy pierwszą konwersację startową
+        conversation_id = 1
+        conversation = {
+            "id": conversation_id,
+            "name": "Konwersacja 1",
+            "chatbot_personality": DEFAULT_PERSONALITY,
+            "messages": [],
+        }
+        with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+            f.write(json.dumps(conversation))
+        with open(DB_PATH / "current.json", "w") as f:
+            f.write(json.dumps({"current_conversation_id": conversation_id,}))
+    
+    # Ładujemy aktualną konwersację
+    with open(DB_PATH / "current.json", "r") as f:
+        data = json.loads(f.read())
+        conversation_id = data["current_conversation_id"]
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+
+    load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
-    """Zapisuje wiadomości do bazy danych."""
-    conn = get_db_connection()
-    if conn:
-        with conn.cursor() as cur:
-            messages_json = json.dumps(st.session_state["messages"])
-            conv_id = st.session_state["id"]
-            # cur.execute("UPDATE conversations SET messages = %s WHERE id = %s", (messages_json, conv_id))
-            conn.commit()
-        conn.close()
+    conversation_id = st.session_state["id"]
+    new_messages = st.session_state["messages"]
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+        f.write(json.dumps({**conversation, "messages": new_messages,}))
 
 def save_current_conversation_name():
-    """Zapisuje nazwę konwersacji."""
-    conn = get_db_connection()
-    if conn:
-        with conn.cursor() as cur:
-            new_name = st.session_state["new_conversation_name_input"]
-            conv_id = st.session_state["id"]
-            # cur.execute("UPDATE conversations SET name = %s WHERE id = %s", (new_name, conv_id))
-            conn.commit()
-        conn.close()
-    st.session_state["name"] = st.session_state["new_conversation_name_input"]
+    conversation_id = st.session_state["id"]
+    new_conversation_name = st.session_state["new_conversation_name_input"]
 
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+        f.write(json.dumps({**conversation, "name": new_conversation_name,}))
+    
+    st.session_state["name"] = new_conversation_name
 
 def save_current_conversation_personality():
-    """Zapisuje osobowość chatbota."""
-    conn = get_db_connection()
-    if conn:
-        with conn.cursor() as cur:
-            new_personality = st.session_state["new_chatbot_personality"]
-            conv_id = st.session_state["id"]
-            # cur.execute("UPDATE conversations SET chatbot_personality = %s WHERE id = %s", (new_personality, conv_id))
-            conn.commit()
-        conn.close()
-
+    conversation_id = st.session_state["id"]
+    new_chatbot_personality = st.session_state["new_chatbot_personality"]
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "r") as f:
+        conversation = json.loads(f.read())
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+        f.write(json.dumps({**conversation, "chatbot_personality": new_chatbot_personality,}))
 
 def create_new_conversation():
-    """Tworzy nową konwersację w bazie danych i ustawia ją jako aktywną."""
-    conn = get_db_connection()
-    if conn:
-        with conn.cursor() as cur:
-            personality = st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY)
-            # cur.execute("INSERT INTO conversations (name, chatbot_personality, messages, is_current) VALUES (%s, %s, %s, TRUE) RETURNING id", 
-            #             (f"Konwersacja {datetime.now().strftime('%Y%m%d%H%M')}", personality, json.dumps([])))
-            # new_id = cur.fetchone()[0]
-            # cur.execute("UPDATE conversations SET is_current = FALSE WHERE id != %s", (new_id,)) # Ustaw pozostałe na nieaktywne
-            conn.commit()
-            # conversation_data = {"id": new_id, "name": f"Konwersacja...", "messages": [], "chatbot_personality": personality}
-            # load_conversation_to_state(conversation_data)
-        conn.close()
+    conversation_ids = []
+    for p in DB_CONVERSATIONS_PATH.glob("*.json"):
+        conversation_ids.append(int(p.stem))
+    conversation_id = max(conversation_ids) + 1
+    personality = DEFAULT_PERSONALITY
+    if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
+        personality = st.session_state["chatbot_personality"]
 
-# --- Pozostałe funkcje (Logowanie, Renderowanie UI) pozostają niezmienione ---
+    conversation = {
+        "id": conversation_id,
+        "name": f"Konwersacja {conversation_id}",
+        "chatbot_personality": personality,
+        "messages": [],
+    }
+    with open(DB_CONVERSATIONS_PATH / f"{conversation_id}.json", "w") as f:
+        f.write(json.dumps(conversation))
+    with open(DB_PATH / "current.json", "w") as f:
+        f.write(json.dumps({"current_conversation_id": conversation_id,}))
+
+    load_conversation_to_state(conversation)
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -209,14 +181,25 @@ def calculate_costs(messages):
     total_cost_pln = total_cost_usd * USD_TO_PLN
     return total_cost_pln
 
-def login():
-    st.session_state["logged_in"] = False
-    users = {}
-    config = {}
-    
-    # ... (kod logowania, który używa bcrypt i secret.toml/env vars) ...
-    # Zakładamy, że ten kod działa i ustawia st.session_state["logged_in"] = True
-    pass # Usuń 'pass' jeśli masz tu działającą logikę logowania
+# --- Logowanie (Uproszczone) ---
+
+def login_form():
+    # Używamy os.getenv do pobierania danych z secrets.toml/env vars
+    correct_user = os.getenv("APP_USER", "admin") # Domyślny user jeśli brak zmiennej
+    correct_pass_hash = os.getenv("APP_PASS_HASH", "$2b$12$EXAMPLEHASH") # Zmień na swój hash
+
+    st.title("Pionier GPT - Logowanie")
+    username = st.text_input("Użytkownik")
+    password = st.text_input("Hasło", type="password")
+
+    if st.button("Zaloguj"):
+        # Weryfikacja hasła bcrypt
+        if username == correct_user and bcrypt.checkpw(password.encode('utf-8'), correct_pass_hash.encode('utf-8')):
+            st.session_state["logged_in"] = True
+            st.success("Zalogowano pomyślnie!")
+            st.rerun() # Przeładowanie strony, aby pokazać UI
+        else:
+            st.error("Nieprawidłowy login lub hasło.")
 
 # --- Główna logika aplikacji (UI) ---
 
@@ -224,8 +207,58 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if st.session_state["logged_in"]:
-    # Kod interfejsu Streamlit (sidebar, chat_input itp.)
-    # Ten kod wywoła funkcje load/save DB
-    pass # Usuń 'pass' i wklej resztę UI swojej aplikacji tutaj, która wywoła funkcje bazodanowe
+    # --------------------------------------------------
+    # CAŁY INTERFEJS UŻYTKOWNIKA STREAMLIT
+    # --------------------------------------------------
+
+    # Inicjalizacja klienta OpenAI po zalogowaniu
+    openai_client = init_openai_client()
+
+    if "messages" not in st.session_state:
+        # POBIERAMY DANE Z PLIKÓW PRZY PIERWSZYM URUCHOMIENIU SESJI
+        load_current_conversation()
+
+    # SIDEBAR
+    with st.sidebar:
+        st.header(st.session_state.get("name", "Nowa konwersacja"))
+        st.text_input("Zmień nazwę:", key="new_conversation_name_input", on_change=save_current_conversation_name)
+        
+        st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
+        
+        st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
+        st.divider()
+        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None), use_container_width=True)
+
+        if "messages" in st.session_state:
+            total_cost_pln = calculate_costs(st.session_state["messages"])
+            st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
+
+    # GŁÓWNY WIDOK CHATBOTA
+    st.title(st.session_state.get("name", "Pionier GPT"))
+
+    for message in st.session_state["messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    if prompt := st.chat_input("Napisz coś do chatbota..."):
+        st.session_state["messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        if openai_client:
+            with st.spinner("Myślę..."):
+                reply = chatbot_reply(prompt, st.session_state["messages"], openai_client)
+            
+            st.session_state["messages"].append(reply)
+            
+            # ZAPISUJEMY WIADOMOŚCI DO PLIKU PO KAŻDEJ ODPOWIEDZI
+            save_current_conversation_messages() 
+            
+            with st.chat_message("assistant"):
+                st.markdown(reply["content"])
+
 else:
-    login()
+    # --------------------------------------------------
+    # WYŚWIETLANIE STRONY LOGOWANIA
+    # --------------------------------------------------
+    login_form()
