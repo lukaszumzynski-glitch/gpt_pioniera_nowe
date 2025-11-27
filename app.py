@@ -64,7 +64,6 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    # POPRAWKA BŁĘDU AttributeError
     assistant_message_content = response.choices.message.content
 
     return {
@@ -170,8 +169,11 @@ def create_new_conversation():
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
     
-    st.session_state['reload_app_state'] = True
-
+    # --- NOWA LOGIKA PRZEŁADOWANIA ---
+    # Usunięcie klucza powoduje, że sesja zacznie się od nowa i załaduje nową konwersację
+    if 'messages' in st.session_state:
+        del st.session_state['messages']
+    st.rerun()
 
 def list_conversations():
     conversations_list = []
@@ -189,12 +191,18 @@ def list_conversations():
                 
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
+# --- NOWA FUNKCJA CALLBACK BEZ st.rerun() ---
 def select_conversation_callback(conversation_id):
-    """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
+    """Callback: Ustawia ID wybranej konwersacji, zapisuje bieżącą i przygotowuje do przeładowania."""
     save_current_conversation_messages() 
     with open(DB_PATH / "current.json", "w") as f:
         f.write(json.dumps({"current_conversation_id": conversation_id,}))
-    st.session_state['reload_app_state'] = True 
+    
+    # --- NOWA LOGIKA ---
+    # Używamy st.session_state, aby wymusić przeładowanie stanu w głównym bloku
+    if 'messages' in st.session_state:
+        del st.session_state['messages']
+    # Nie wywołujemy st.rerun() tutaj.
 
 def calculate_costs(messages):
     total_input_tokens = 0
@@ -244,8 +252,7 @@ def login_form():
             if correct_hash and bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username_input
-                st.success(f"Zalogowano pomyślnie jako {username_input}!")
-                st.rerun()
+                st.rerun() # Bezpieczne rerun tutaj
             else:
                 st.error("Nieprawidłowy login lub hasło.")
         else:
@@ -255,28 +262,23 @@ def login_form():
 
 if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
-if 'reload_app_state' not in st.session_state:
-    st.session_state['reload_app_state'] = False
-
 
 if st.session_state["logged_in"]:
-    # Sprawdzenie flagi przeładowania na początku głównego bloku
-    if st.session_state.get('reload_app_state'):
-        st.session_state['reload_app_state'] = False
-        st.rerun() 
+    # Sprawdzenie, czy trzeba przeładować stan (bo np. zmieniono konwersację)
+    # Sprawdzenie odbywa się teraz poprzez brak klucza 'messages'
+    if 'messages' not in st.session_state:
+        load_current_conversation()
+        st.rerun() # Po załadowaniu stanu, przeładowujemy UI, żeby przyciski były aktywne/nieaktywne poprawnie
 
     openai_client = init_openai_client()
 
     if openai_client is None:
         st.stop()
-
-    if "messages" not in st.session_state:
-        load_current_conversation()
-
+    
     # --- POPRAWIONY UKŁAD SIDEBARA ---
     with st.sidebar:
         # 1. Przycisk Wyloguj (na samej górze)
-        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
+        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None) or st.session_state.pop("messages", None), use_container_width=True)
         st.divider()
 
         # 2. Logo GPT Pionier i informacja "zalogowany jako"
@@ -304,7 +306,7 @@ if st.session_state["logged_in"]:
         conversations = list_conversations()
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            # Używamy on_click_callback do ustawienia flagi
+            # Używamy on_click_callback i dzięki usunięciu st.session_state['messages'] wcześniej, to zadziała
             st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
         st.divider()
 
