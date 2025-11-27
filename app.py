@@ -102,9 +102,9 @@ def load_current_conversation():
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
         latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
-            conversation = json.loads(f.read())
-        # Dodano filtr na username
-        if conversation.get('username') == current_user:
+             conversation = json.loads(f.read())
+        # Upewniamy się, że konwersacja należy do aktualnego użytkownika
+        if conversation.get('username') == current_user: 
             load_conversation_to_state(conversation)
 
 def save_current_conversation_messages():
@@ -115,8 +115,10 @@ def save_current_conversation_messages():
         if file_path.exists():
             with open(file_path, "r") as f:
                 conversation = json.loads(f.read())
+            # Zaktualizowane: zachowujemy username podczas zapisu
+            conversation["messages"] = new_messages
             with open(file_path, "w") as f:
-                f.write(json.dumps({**conversation, "messages": new_messages,}))
+                f.write(json.dumps(conversation))
     except Exception as e:
         st.error(f"Błąd podczas zapisu wiadomości do pliku: {e}")
 
