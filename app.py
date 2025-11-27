@@ -35,7 +35,6 @@ def img_to_bytes(img_path):
 
 def init_openai_client():
     if "openai_client" not in st.session_state:
-        # POBIERAMY KLUCZ Z OS.GETENV
         api_key = os.getenv("OPENAI_API_KEY")
         if api_key:
             try:
@@ -46,9 +45,8 @@ def init_openai_client():
             except Exception as e:
                 st.error(f"Wystąpił błąd podczas inicjalizacji klienta OpenAI: {e}")
         else:
-            # KOMUNIKAT O BŁĘDZIE KLUCZA
             st.error("Klucz OpenAI API nie został znaleziony w zmiennych środowiskowych. Sprawdź konfigurację Secrets.")
-            return None # Zwracamy None, bo nie mamy klucza
+            return None
     return st.session_state.get("openai_client")
 
 def chatbot_reply(user_prompt, memory, openai_client_instance):
@@ -76,10 +74,6 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
 #
 DB_PATH = Path("db")
 DB_CONVERSATIONS_PATH = DB_PATH / "conversations"
-
-# ... (Funkcje load_conversation_to_state, load_current_conversation, save_current_conversation_messages, 
-# save_current_conversation_name, save_current_conversation_personality, create_new_conversation, calculate_costs)
-# ... (pozostały bez zmian z poprzedniej wiadomości)
 
 def load_conversation_to_state(conversation):
     st.session_state["id"] = conversation["id"]
@@ -173,10 +167,8 @@ def calculate_costs(messages):
     total_cost_pln = total_cost_usd * USD_TO_PLN
     return total_cost_pln
 
-# --- Logowanie (Obsługa wielu użytkowników i logo) ---
-
+# --- Logowanie ---
 def login_form():
-    # KOD PRZYWRACAJĄCY LOGO I UKŁAD NAGŁÓWKA
     img_path = "logo.png"
     encoded_img = img_to_bytes(img_path)
     if encoded_img:
@@ -206,7 +198,6 @@ def login_form():
 
         if username_input in users_db:
             correct_hash = users_db[username_input]
-            # Upewniamy się, że hash jest prawidłowym bytem
             if correct_hash and bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
                 st.session_state["logged_in"] = True
                 st.session_state["username"] = username_input
@@ -223,39 +214,41 @@ if "logged_in" not in st.session_state:
     st.session_state["logged_in"] = False
 
 if st.session_state["logged_in"]:
-    # CAŁY INTERFEJS UŻYTKOWNIKA STREAMLIT
     openai_client = init_openai_client()
 
-    # WAŻNE: Sprawdzamy czy klient OpenAI został zainicjalizowany poprawnie PRZED próbą renderowania UI
     if openai_client is None:
-        st.stop() # Zatrzymuje działanie aplikacji w tym miejscu, jeśli klucz jest zły/brak
+        st.stop()
 
     if "messages" not in st.session_state:
         load_current_conversation()
 
-    # --- POPRAWIONY UKŁAD SIDEBARA ---
+    # --- ZMIENIONA KOLEJNOŚĆ W SIDEBARZE ---
     with st.sidebar:
-        # Dodajemy logo i napis "Pionier GPT" na górze sidebara, jeśli istnieje plik logo.png
+        # 1. Przycisk Wyloguj (na samej górze)
+        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
+        st.divider()
+
+        # 2. Logo GPT Pionier i informacja "zalogowany jako"
         img_path = "logo.png"
         encoded_img = img_to_bytes(img_path)
         if encoded_img:
              st.markdown(f'<div style="display: flex; align-items: center;"><img src="data:image/png;base64,{encoded_img}" width="50" style="margin-right: 10px;"><h3>Pionier GPT</h3></div>', unsafe_allow_html=True)
-        else:
-             st.header("Pionier GPT")
-
         st.markdown(f"Zalogowany jako: **{st.session_state.get('username', 'Użytkownik')}**")
         st.divider()
-        
-        st.header(st.session_state.get("name", "Nowa konwersacja"))
-        st.text_input("Zmień nazwę:", key="new_conversation_name_input", on_change=save_current_conversation_name)
-        st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
-        st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
-        st.divider()
-        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
 
+        # 3. Koszt rozmowy
         if "messages" in st.session_state:
             total_cost_pln = calculate_costs(st.session_state["messages"])
             st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
+        
+        # 4. Nowa konwersacja (przycisk i nazwa aktualnej)
+        st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
+        st.header(st.session_state.get("name", "Aktualna konwersacja"))
+        # Możesz dodać tutaj listę zapisanych konwersacji, jeśli masz funkcję do ich listowania
+        
+        # 5. Okno osobowości chatbota (na końcu)
+        st.text_input("Zmień nazwę:", key="new_conversation_name_input", on_change=save_current_conversation_name)
+        st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
 
     # GŁÓWNY WIDOK CHATBOTA
     st.title(st.session_state.get("name", "Pionier GPT"))
