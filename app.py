@@ -63,7 +63,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "prompt_tokens": response.usage.prompt_tokens,
             "total_tokens": response.usage.total_tokens,
         }
-    
+
     assistant_message_content = response.choices[0].message.content
 
     return {
@@ -95,16 +95,12 @@ def load_current_conversation():
     if not current_user: return 
 
     available_convs = list_conversations(current_user)
-    
+
     if not available_convs:
         create_new_conversation()
     else:
-        # Ten kod (load_current_conversation) jest wywoływany przy starcie sesji,
-        # więc powinien załadować aktualną konwersację z pliku 'current.json' (globalnego)
-        # i sprawdzić czy należy do current_user. Jeśli nie, załadować najnowszą usera.
-        
         # Uproszczenie: zawsze ładuj najnowszą konwersację usera przy starcie sesji
-        latest_conv = available_convs[0] # Poprawione indeksowanie listy
+        latest_conv = available_convs[0] 
         with open(DB_CONVERSATIONS_PATH / f"{latest_conv['id']}.json", "r") as f:
              conversation = json.loads(f.read())
         load_conversation_to_state(conversation)
@@ -126,7 +122,7 @@ def save_current_conversation_name():
     try:
         conversation_id = st.session_state["id"]
         new_conversation_name = st.session_state["new_conversation_name_input"] 
-        
+
         file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
         if file_path.exists():
             with open(file_path, "r") as f:
@@ -151,33 +147,31 @@ def save_current_conversation_personality():
         st.error(f"Błąd podczas zapisu osobowości do pliku: {e}")
 
 def create_new_conversation():
+    new_conversation_name = st.session_state.get("new_conversation_name_input") or f"Konwersacja {len(list(DB_CONVERSATIONS_PATH.glob('*.json'))) + 1}"
+
     conversation_ids = []
     for p in DB_CONVERSATIONS_PATH.glob("*.json"):
         conversation_ids.append(int(p.stem))
     next_id = max(conversation_ids) + 1 if conversation_ids else 1
-    
+
     personality = DEFAULT_PERSONALITY
     if "chatbot_personality" in st.session_state and st.session_state["chatbot_personality"]:
         personality = st.session_state["chatbot_personality"]
 
     conversation = {
         "id": next_id,
-        "name": f"Konwersacja {next_id}",
+        "name": new_conversation_name,
         "chatbot_personality": personality,
         "messages": [],
         "username": st.session_state.get("username")
     }
     with open(DB_CONVERSATIONS_PATH / f"{next_id}.json", "w") as f:
         f.write(json.dumps(conversation))
-    
-    # *** DODANA LOGIKA RESETOWANIA INPUTU PO UTWORZENIU NOWEJ KONWERSACJI ***
-    st.session_state["new_conversation_name_input"] = f"Konwersacja {next_id}"
-    
+
+    st.session_state["new_conversation_name_input"] = new_conversation_name
     st.session_state['reload_app_state'] = True
 
-
 def list_conversations(username=None):
-    """Zwraca listę słowników z ID i nazwami konwersacji, filtruje po username."""
     user_to_filter = username if username else st.session_state.get("username")
     conversations_list = []
     if DB_CONVERSATIONS_PATH.exists() and user_to_filter:
@@ -195,13 +189,11 @@ def list_conversations(username=None):
     return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
 def select_conversation_callback(conversation_id):
-    """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
     save_current_conversation_messages() 
     st.session_state['pending_conversation_id'] = conversation_id
     st.session_state['reload_app_state'] = True 
 
 def delete_conversation_callback(conversation_id):
-    """Callback: Usuwa plik konwersacji i ustawia flagę przeładowania."""
     file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
     if file_path.exists():
         os.remove(file_path)
@@ -210,7 +202,6 @@ def delete_conversation_callback(conversation_id):
     else:
         st.error("Nie można znaleźć konwersacji do usunięcia.")
 
-
 def calculate_costs(messages):
     total_input_tokens = 0
     total_output_tokens = 0
@@ -218,7 +209,7 @@ def calculate_costs(messages):
         if "usage" in message:
             total_input_tokens += message["usage"]["prompt_tokens"]
             total_output_tokens += message["usage"]["completion_tokens"]
-    
+
     input_cost_usd = total_input_tokens * PRICING["input_tokens"]
     output_cost_usd = total_output_tokens * PRICING["output_tokens"]
     total_cost_usd = input_cost_usd + output_cost_usd
@@ -273,17 +264,13 @@ if "logged_in" not in st.session_state:
 if 'reload_app_state' not in st.session_state:
     st.session_state['reload_app_state'] = False
 
-
 if st.session_state["logged_in"]:
-    # Sprawdzenie flagi przeładowania na początku głównego bloku
     if st.session_state.get('reload_app_state'):
-        # Jeśli pending_conversation_id jest ustawione, zapisujemy je do current.json zanim nastąpi rerun
         if st.session_state.get('pending_conversation_id'):
-             # Zapisujemy do current.json ID, które ma zostać załadowane po rerunu
              with open(DB_PATH / "current.json", "w") as f:
                 f.write(json.dumps({"current_conversation_id": st.session_state['pending_conversation_id'],}))
-             st.session_state.pop('pending_conversation_id', None) # Usuwamy flagę
-        
+             st.session_state.pop('pending_conversation_id', None) 
+
         st.session_state['reload_app_state'] = False
         st.rerun() 
 
@@ -297,11 +284,9 @@ if st.session_state["logged_in"]:
 
     # --- POPRAWIONY UKŁAD SIDEBARA ---
     with st.sidebar:
-        # 1. Przycisk Wyloguj (na samej górze)
         st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
         st.divider()
 
-        # 2. Logo GPT Pionier i informacja "zalogowany jako"
         img_path = "logo.png"
         encoded_img = img_to_bytes(img_path)
         if encoded_img:
@@ -309,37 +294,29 @@ if st.session_state["logged_in"]:
         st.markdown(f"Zalogowany jako: **{st.session_state.get('username', 'Użytkownik')}**")
         st.divider()
 
-        # 3. Koszt rozmowy
         if "messages" in st.session_state:
             total_cost_pln = calculate_costs(st.session_state["messages"])
             st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
-        
-        # 4. Nowa konwersacja (przycisk)
+
         st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
-        
-        # 5. Zmień nazwę konwersacji (pole tekstowe, przeniesione wyżej)
-        # Ustawiamy wartość domyślną inputu na to, co jest aktualnie wczytane
+
         st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
         st.divider()
 
-        # 6. Lista zapisanych konwersacji (aktywne, z ramkami + usuwanie)
         st.subheader("Historia konwersacji")
         conversations = list_conversations(st.session_state.get("username"))
         for conv in conversations:
             is_active = conv['id'] == st.session_state.get('id')
-            
+
             col1, col2 = st.columns([0.8, 0.2])
             with col1:
                 st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
             with col2:
-                # Przycisk usuwania (czerwony)
                 st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation_callback, args=(conv['id'],))
         st.divider()
 
-        # 7. Okno osobowości chatbota (na końcu)
         st.subheader("Ustawienia Chatbota")
         st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
-
 
     # GŁÓWNY WIDOK CHATBOTA
     st.title(st.session_state.get("name", "Pionier GPT"))
@@ -356,13 +333,12 @@ if st.session_state["logged_in"]:
         if openai_client:
             with st.spinner("Myślę..."):
                 reply = chatbot_reply(prompt, st.session_state["messages"], openai_client)
-            
+
             st.session_state["messages"].append(reply)
             save_current_conversation_messages() 
-            
+
             with st.chat_message("assistant"):
                 st.markdown(reply["content"])
 
 else:
-    # WYŚWIETLANIE STRONY LOGOWANIA
     login_form()
