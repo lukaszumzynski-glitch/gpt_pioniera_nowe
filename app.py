@@ -64,7 +64,7 @@ def chatbot_reply(user_prompt, memory, openai_client_instance):
             "total_tokens": response.usage.total_tokens,
         }
     
-    assistant_message_content = response.choices[0].message.content
+    assistant_message_content = response.choices.message.content
 
     return {
         "role": "assistant",
@@ -191,192 +191,178 @@ def list_conversations(username=None):
                             "name": data.get("name", f"Konwersacja {data.get('id')}")
                         })
             except Exception as e:
-                p
+                print(f"Błąd podczas listowania konwersacji: {e}")
+    return sorted(conversations_list, key=lambda x: x['id'], reverse=True)
 
-# *** BRAK DALSZEJ CZĘŚCI KODU W ORYGINALE, KTÓRY WYSŁAŁEŚ ***
-# Poniżej znajduje się reszta Twojego oryginalnego kodu z kolejnej wiadomości:
+def select_conversation_callback(conversation_id):
+    """Callback: Ustawia ID wybranej konwersacji i flagę przeładowania."""
+    save_current_conversation_messages() 
+    st.session_state['pending_conversation_id'] = conversation_id
+    st.session_state['reload_app_state'] = True 
 
-# --- Authentication System ---
-
-DB_USERS_PATH = DB_PATH / "users.toml"
-
-def render_login_page():
-    st.set_page_config(page_title="Chatbot Logowanie", page_icon=":speech_balloon:")
-    
-    # Użyj CSS, aby wyśrodkować formularz logowania
-    st.markdown("""
-    <style>
-    .stApp {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        height: 100vh;
-    }
-    .stForm {
-        width: 100%;
-        max-width: 400px;
-        padding: 2rem;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        background-color: #f9f9f9;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    with st.form("login_form"):
-        st.markdown("<h1 style='text-align: center;'>Logowanie</h1>", unsafe_allow_html=True)
-        username = st.text_input("Nazwa użytkownika")
-        password = st.text_input("Hasło", type="password")
-        col1, col2 = st.columns(2)
-        with col1:
-            submitted_login = st.form_submit_button("Zaloguj")
-        with col2:
-            submitted_register = st.form_submit_button("Zarejestruj")
-
-    if submitted_login:
-        on_login(username, password)
-    if submitted_register:
-        on_register(username, password)
-
-def on_register(username, password):
-    if not username or not password:
-        st.error("Nazwa użytkownika i hasło nie mogą być puste.")
-        return
-
-    users_data = {}
-    if DB_USERS_PATH.exists():
-        with open(DB_USERS_PATH, mode="rb") as f:
-            users_data = tomllib.load(f)
-
-    if username in users_data:
-        st.error("Użytkownik o tej nazwie już istnieje.")
-        return
-
-    # Hashowanie hasła
-    hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-    users_data[username] = {"password": hashed_password}
-
-    with open(DB_USERS_PATH, mode="w") as f:
-        import tomli_w
-        tomli_w.dump(users_data, f)
-    
-    st.success("Rejestracja zakończona sukcesem. Możesz się teraz zalogować.")
-
-def on_login(username, password):
-    if not username or not password:
-        st.error("Nazwa użytkownika i hasło nie mogą być puste.")
-        return
-
-    if DB_USERS_PATH.exists():
-        with open(DB_USERS_PATH, mode="rb") as f:
-            users_data = tomllib.load(f)
-        
-        if username in users_data:
-            hashed_password = users_data[username]["password"].encode('utf-8')
-            if bcrypt.checkpw(password.encode('utf-8'), hashed_password):
-                st.session_state["logged_in"] = True
-                st.session_state["username"] = username
-                st.session_state["reload_app_state"] = True
-                return
-
-    st.error("Nieprawidłowa nazwa użytkownika lub hasło.")
-
-def logout():
-    st.session_state["logged_in"] = False
-    st.session_state["username"] = None
-    st.session_state["reload_app_state"] = True
-    st.session_state["messages"] = []
-    st.session_state["id"] = None
-    st.session_state["name"] = None
-
-# --- Main App ---
-
-def main():
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
-        st.session_state["reload_app_state"] = False
-        init_openai_client()
-
-    if st.session_state["reload_app_state"]:
-        st.session_state["reload_app_state"] = False
-        st.rerun()
-
-    if not st.session_state["logged_in"]:
-        render_login_page()
+def delete_conversation_callback(conversation_id):
+    """Callback: Usuwa plik konwersacji i ustawia flagę przeładowania."""
+    file_path = DB_CONVERSATIONS_PATH / f"{conversation_id}.json"
+    if file_path.exists():
+        os.remove(file_path)
+        st.success(f"Konwersacja usunięta.")
+        st.session_state['reload_app_state'] = True
     else:
-        st.set_page_config(page_title="Chatbot", page_icon=":speech_balloon:", layout="wide")
+        st.error("Nie można znaleźć konwersacji do usunięcia.")
 
-        if "messages" not in st.session_state or not st.session_state["id"]:
-            load_current_conversation()
 
-        # SIDEBAR
-        with st.sidebar:
-            st.header(f"Witaj, {st.session_state['username']}")
-            st.button("Wyloguj", on_click=logout)
-            st.markdown("---")
+def calculate_costs(messages):
+    total_input_tokens = 0
+    total_output_tokens = 0
+    for message in messages:
+        if "usage" in message:
+            total_input_tokens += message["usage"]["prompt_tokens"]
+            total_output_tokens += message["usage"]["completion_tokens"]
+    
+    input_cost_usd = total_input_tokens * PRICING["input_tokens"]
+    output_cost_usd = total_output_tokens * PRICING["output_tokens"]
+    total_cost_usd = input_cost_usd + output_cost_usd
+    total_cost_pln = total_cost_usd * USD_TO_PLN
+    return total_cost_pln
+
+# --- Logowanie ---
+def login_form():
+    img_path = "logo.png"
+    encoded_img = img_to_bytes(img_path)
+    if encoded_img:
+        header_html = f"""
+            <div style="display: flex; align-items: center; justify-content: flex-start;">
+                <img src="data:image/png;base64,{encoded_img}" width="100" height="100" style="vertical-align: middle; margin-right: 20px;">
+                <h1 style="display: inline; vertical-align: middle;">Pionier GPT</h1>
+            </div>
+            <p style="margin-top: 10px;">Logowanie</p>
+        """
+        st.markdown(header_html, unsafe_allow_html=True)
+    else:
+        st.title("Pionier GPT - Logowanie")
+
+    username_input = st.text_input("Użytkownik")
+    password_input = st.text_input("Hasło", type="password")
+
+    if st.button("Zaloguj"):
+        users_db = {
+            os.getenv("user_kasia"): os.getenv("hash_kasia"),
+            os.getenv("user_ewunia"): os.getenv("hash_ewunia"),
+            os.getenv("user_zbyszek"): os.getenv("hash_zbyszek"),
+            os.getenv("user_Pionier"): os.getenv("hash_Pionier"),
+            os.getenv("user_mentor"): os.getenv("hash_mentor"),
+        }
+        users_db = {k: v for k, v in users_db.items() if k is not None and v is not None}
+
+        if username_input in users_db:
+            correct_hash = users_db[username_input]
+            if correct_hash and bcrypt.checkpw(password_input.encode('utf-8'), correct_hash.encode('utf-8')):
+                st.session_state["logged_in"] = True
+                st.session_state["username"] = username_input
+                st.success(f"Zalogowano pomyślnie jako {username_input}!")
+                st.rerun()
+            else:
+                st.error("Nieprawidłowy login lub hasło.")
+        else:
+            st.error("Nieprawidłowy login lub hasło.")
+
+# --- Główna logika aplikacji (UI) ---
+
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+if 'reload_app_state' not in st.session_state:
+    st.session_state['reload_app_state'] = False
+
+
+if st.session_state["logged_in"]:
+    # Sprawdzenie flagi przeładowania na początku głównego bloku
+    if st.session_state.get('reload_app_state'):
+        # Jeśli pending_conversation_id jest ustawione, zapisujemy je do current.json zanim nastąpi rerun
+        if st.session_state.get('pending_conversation_id'):
+             # Zapisujemy do current.json ID, które ma zostać załadowane po rerunu
+             with open(DB_PATH / "current.json", "w") as f:
+                f.write(json.dumps({"current_conversation_id": st.session_state['pending_conversation_id'],}))
+             st.session_state.pop('pending_conversation_id', None) # Usuwamy flagę
+        
+        st.session_state['reload_app_state'] = False
+        st.rerun() 
+
+    openai_client = init_openai_client()
+
+    if openai_client is None:
+        st.stop()
+
+    if "messages" not in st.session_state:
+        load_current_conversation()
+
+    # --- POPRAWIONY UKŁAD SIDEBARA ---
+    with st.sidebar:
+        # 1. Przycisk Wyloguj (na samej górze)
+        st.button("Wyloguj", on_click=lambda: st.session_state.pop("logged_in", None) or st.session_state.pop("username", None), use_container_width=True)
+        st.divider()
+
+        # 2. Logo GPT Pionier i informacja "zalogowany jako"
+        img_path = "logo.png"
+        encoded_img = img_to_bytes(img_path)
+        if encoded_img:
+             st.markdown(f'<div style="display: flex; align-items: center;"><img src="data:image/png;base64,{encoded_img}" width="50" style="margin-right: 10px;"><h3>Pionier GPT</h3></div>', unsafe_allow_html=True)
+        st.markdown(f"Zalogowany jako: **{st.session_state.get('username', 'Użytkownik')}**")
+        st.divider()
+
+        # 3. Koszt rozmowy
+        if "messages" in st.session_state:
+            total_cost_pln = calculate_costs(st.session_state["messages"])
+            st.info(f"Koszt tej konwersacji: {total_cost_pln:.4f} PLN")
+        
+        # 4. Nowa konwersacja (przycisk)
+        st.button("Nowa Konwersacja", on_click=create_new_conversation, use_container_width=True)
+        
+        # 5. Zmień nazwę konwersacji (pole tekstowe, przeniesione wyżej)
+        # Ustawiamy wartość domyślną inputu na to, co jest aktualnie wczytane
+        st.text_input("Zmień nazwę bieżącej:", key="new_conversation_name_input", on_change=save_current_conversation_name, value=st.session_state.get("new_conversation_name_input"))
+        st.divider()
+
+        # 6. Lista zapisanych konwersacji (aktywne, z ramkami + usuwanie)
+        st.subheader("Historia konwersacji")
+        conversations = list_conversations(st.session_state.get("username"))
+        for conv in conversations:
+            is_active = conv['id'] == st.session_state.get('id')
             
-            # --- Zarządzanie konwersacjami ---
-            st.header("Konwersacje")
+            col1, col2 = st.columns([0.8, 0.2])
+            with col1:
+                st.button(conv['name'], key=f"load_conv_{conv['id']}", use_container_width=True, disabled=is_active, on_click=select_conversation_callback, args=(conv['id'],))
+            with col2:
+                # Przycisk usuwania (czerwony)
+                st.button("🗑️", key=f"delete_conv_{conv['id']}", help="Usuń konwersację", on_click=delete_conversation_callback, args=(conv['id'],))
+        st.divider()
 
-            # Input do tworzenia nowej konwersacji/zmiany nazwy
-            st.text_input(
-                "Nazwa konwersacji:",
-                key="new_conversation_name_input",
-                on_change=save_current_conversation_name,
-                label_visibility="collapsed"
-            )
+        # 7. Okno osobowości chatbota (na końcu)
+        st.subheader("Ustawienia Chatbota")
+        st.text_area("Osobowość Chatbota:", key="new_chatbot_personality", value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY), on_change=save_current_conversation_personality, height=150)
 
-            st.button(
-                "➕ Nowa konwersacja", 
-                on_click=create_new_conversation, 
-                use_container_width=True
-            )
-            st.markdown("---")
 
-            # Lista zapisanych konwersacji
-            available_conversations = list_conversations(st.session_state["username"])
-            for conv in available_conversations:
-                is_active = st.session_state.get("id") == conv['id']
-                if is_active:
-                    st.markdown(f"**> {conv['name']}**")
-                else:
-                    st.markdown(conv['name']) # Tutaj jest oryginalny problem - to nie jest klikalne
+    # GŁÓWNY WIDOK CHATBOTA
+    st.title(st.session_state.get("name", "Pionier GPT"))
 
-            st.markdown("---")
-            # --- Ustawienia ---
-            st.subheader("Ustawienia")
+    for message in st.session_state["messages"]:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-            st.text_area(
-                "Osobowość Chatbota (System Prompt)",
-                value=st.session_state.get("chatbot_personality", DEFAULT_PERSONALITY),
-                key="new_chatbot_personality",
-                on_change=save_current_conversation_personality,
-                height=150
-            )
+    if prompt := st.chat_input("Napisz coś do chatbota..."):
+        st.session_state["messages"].append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-        # MAIN CONTENT AREA
-        st.title(f"{st.session_state.get('name', 'Chatbot')}")
-
-        for message in st.session_state["messages"]:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-        if user_prompt := st.chat_input("Napisz coś..."):
-            
-            st.session_state["messages"].append({"role": "user", "content": user_prompt})
-            with st.chat_message("user"):
-                st.markdown(user_prompt)
-
-            client = st.session_state.openai_client
+        if openai_client:
             with st.spinner("Myślę..."):
-                reply = chatbot_reply(user_prompt, st.session_state["messages"], client)
-
+                reply = chatbot_reply(prompt, st.session_state["messages"], openai_client)
+            
             st.session_state["messages"].append(reply)
+            save_current_conversation_messages() 
+            
             with st.chat_message("assistant"):
                 st.markdown(reply["content"])
-            
-            save_current_conversation_messages()
 
-
-if __name__ == "__main__":
-    main()
+else:
+    # WYŚWIETLANIE STRONY LOGOWANIA
+    login_form()
